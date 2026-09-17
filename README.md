@@ -1,3 +1,51 @@
+# jev-experiments
+
+TypeSafe **System One** loops. Jev (or a labeled heuristic fallback) sees structured state and returns typed actions; Python owns execution. The canvas is a view — it never goes to the model.
+
+| Experiment | What it drives | Inspector |
+| --- | --- | --- |
+| [Dino-Jev](#dino-jev) | Real `chrome://dino/` in Chromium | http://127.0.0.1:8766 |
+| [Krunker-Jev](#krunker-jev) | Local Krunker-style arena | http://127.0.0.1:8765 |
+
+Both stay in this repo. Develop them on separate branches; this tree keeps Krunker as-is.
+
+# Dino-Jev
+
+A simpler parallel experiment: drive Chrome's internat dinosaur at `chrome://dino/`.
+
+Same decomposition as Krunker-Jev, jev-ultrafast, and the Doom writeup:
+
+1. **Code snapshots state.** `Runner.getInstance()` exposes pose, speed, and obstacles. No screenshots to the model.
+2. **One TypeSafe request per tick.** Action, speculative jump/duck, and an urgency score, in parallel. See [speculative fan-out](https://docs.typesafe.ai/patterns/fan-out.md).
+3. **Code executes.** Jump/duck gates live in `dino_jev/policy.py`. High pterodactyls cannot be jumped into; cacti cannot be ducked.
+4. **The inspector is a view.** The internat canvas stays in Chrome. Jev never sees those pixels.
+
+Questions and thresholds are in [`dino_jev/questions.py`](dino_jev/questions.py).
+
+| Head | Primitive | Consumed when |
+| --- | --- | --- |
+| `action` | Choice (`run` / `jump` / `duck`) | Always, unless confidence `< 0.28` (keep last action) |
+| `jump_now` | Noul | Grounded, not intro, nearest clearance is `ground` or `low` |
+| `duck_now` | Noul | Grounded, not jumping, nearest clearance is `mid` |
+| `urgency` | Score | Displayed; does not move the body |
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e '.[dev]'
+cp .env.example .env   # or set JEV_API_KEY / TYPESAFE_API_KEY
+python -m dino_jev probe-dino
+python -m dino_jev play --policy heuristic --seconds 20
+python -m dino_jev play --policy jev --seconds 20
+python -m dino_jev serve
+```
+
+Open http://127.0.0.1:8766 and the Chromium window on `chrome://dino/`.
+
+- Without a key the loop uses `heuristic` (distance-threshold bot, clearly labeled).
+- With `JEV_API_KEY` or `TYPESAFE_API_KEY` set, it defaults to **jev**.
+- `--speed-cap 9` (default) keeps `maxSpeed` just above pterodactyl spawn (`8.5`) so Jev's ~80ms tick can still commit. `--speed-cap none` is full internat acceleration.
+
 # Krunker-Jev
 
 A TypeSafe **System One** loop in a Krunker-style arena. Jev (or a labeled heuristic fallback) sees structured combat state and returns typed actions; Python owns physics, vision, hitscan, and the inspector.
