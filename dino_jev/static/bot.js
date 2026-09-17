@@ -99,7 +99,7 @@
         type,
         kind: type === "pterodactyl" ? "pterodactyl" : type.indexOf("cactus") === 0 ? "cactus" : "other",
       });
-      if (out.length >= 3) break;
+      if (out.length >= 5) break;
     }
     return out;
   }
@@ -115,34 +115,71 @@
     return "ground";
   }
 
+  function duckBoxHitsNow(obstacles, dinoX, groundY) {
+    const duckY = groundY + (DINO_H - DINO_DUCK_H);
+    for (const obs of obstacles) {
+      if (hit(dinoX, duckY, DINO_DUCK_W, DINO_DUCK_H, obs.x, obs.y, obs.w, obs.h)) return true;
+    }
+    return false;
+  }
+
+  function midBirdBlocking(nearest, dinoX, dinoW) {
+    return nearest && nearest.x + nearest.w >= dinoX + dinoW - 4;
+  }
+
+  function duckClearsMid(obstacles, speed, dinoX, groundY) {
+    const duckY = groundY + (DINO_H - DINO_DUCK_H);
+    return firstHit(obstacles, speed, dinoX, duckY, DINO_DUCK_W, DINO_DUCK_H, 24) === null;
+  }
+
+  function adaptiveLead(lead, speed) {
+    return Math.max(4, Math.min(lead, Math.round(lead - Math.max(0, speed - 6.5) * 2.1)));
+  }
+
   function decide(inst) {
     const trex = inst.tRex;
     if (!trex || trex.jumping || inst.crashed || inst.playingIntro || !inst.playing) return "run";
     const obstacles = packObstacles(inst);
-    if (!obstacles.length) return "run";
+    if (!obstacles.length) {
+      if (trex.ducking) {
+        jev._duckClear = (jev._duckClear || 0) + 1;
+        if (jev._duckClear < 5) return "duck";
+        jev._duckClear = 0;
+      }
+      return "run";
+    }
+    jev._duckClear = 0;
     const speed = inst.currentSpeed;
     const dinoX = trex.xPos;
     const groundY = trex.groundYPos;
+    const width = trex.ducking ? trex.config.widthDuck : trex.config.width;
+    if (trex.ducking) {
+      const nearest = obstacles[0];
+      if (nearest && clearance(nearest) === "mid" && midBirdBlocking(nearest, dinoX, width)) {
+        return "duck";
+      }
+      return "run";
+    }
     const nearest = obstacles[0];
     const how = clearance(nearest);
     if (how === "high" || how === "clear") return "run";
     if (how === "mid") {
-      const stand = firstHit(obstacles, speed, dinoX, groundY, DINO_W, DINO_H, 18);
-      const duckHit = firstHit(
-        obstacles,
-        speed,
-        dinoX,
-        groundY + (DINO_H - DINO_DUCK_H),
-        DINO_DUCK_W,
-        DINO_DUCK_H,
-        12
-      );
-      if (stand !== null && duckHit === null) return "duck";
+      const lead = adaptiveLead((jev.config && jev.config.leadFrames) || LEAD_FRAMES, speed);
+      const horizon = Math.max(22, Math.round(lead + speed * 0.35));
+      const stand = firstHit(obstacles, speed, dinoX, groundY, DINO_W, DINO_H, horizon);
+      const closeEnough = stand !== null && stand <= lead;
+      if (
+        closeEnough &&
+        !duckBoxHitsNow(obstacles, dinoX, groundY) &&
+        duckClearsMid(obstacles, speed, dinoX, groundY)
+      ) {
+        return "duck";
+      }
       return "run";
     }
     const standHit = firstHit(obstacles, speed, dinoX, groundY, DINO_W, DINO_H, STAND_HORIZON);
     if (standHit === null) return "run";
-    const lead = (jev.config && jev.config.leadFrames) || LEAD_FRAMES;
+    const lead = adaptiveLead((jev.config && jev.config.leadFrames) || LEAD_FRAMES, speed);
     const lastChance = (jev.config && jev.config.lastChanceFrames) || 2;
     const delayed = obstacles.map((obs) => ({ ...obs, x: obs.x - speed }));
     if (jumpClears(obstacles, speed, dinoX, groundY)) {
@@ -482,22 +519,7 @@
       jev.action = "jump";
       return;
     }
-    if (jev.provider === "heuristic") {
-      act(inst, decide(inst));
-      return;
-    }
-    if (jev.provider === "jev") {
-      if (trex.ducking) {
-        const obstacles = packObstacles(inst);
-        const nearest = obstacles[0];
-        if (nearest && clearance(nearest) === "mid" && nearest.x + nearest.w > trex.xPos + 8) {
-          jev.action = "duck";
-          return;
-        }
-      }
-      timeArmed(inst);
-      return;
-    }
+    act(inst, decide(inst));
   };
 
   jev.paintHud = paintHud;
@@ -511,11 +533,12 @@
   if (inst && !inst._jevBotWrapped) {
     const prev = inst.update.bind(inst);
     inst.update = function botUpdate() {
+      const out = prev();
       if (window.__dinoJev) {
         window.__dinoJev.tick(this);
         window.__dinoJev.paintHud(this);
       }
-      return prev();
+      return out;
     };
     inst._jevBotWrapped = true;
   }

@@ -31,11 +31,9 @@ def test_jev_apply_delegates_to_apply_jev_intent():
     assert "jumpClears" in BOT_JS
 
 
-def test_bot_times_armed_jev_on_runner_frames():
-    assert "timeArmed" in BOT_JS
-    assert "holdsForClusteredHop" in BOT_JS
-    assert "shouldCommitSingleJumpNow" in BOT_JS
-    assert "decide(inst) === \"jump\"" in BOT_JS
-    assert "jev.armedId != null" in BOT_JS
-    assert 'jev.provider === "jev"' in BOT_JS
-    assert 'jev.provider === "heuristic"' in BOT_JS
+def test_bot_runs_decide_on_runner_frames():
+    assert "act(inst, decide(inst))" in BOT_JS
+    assert "adaptiveLead" in BOT_JS
+    assert "duckClearsMid" in BOT_JS
+    assert "const out = prev()" in BOT_JS
+    assert 'provider === "jev"' in APPLY_JS

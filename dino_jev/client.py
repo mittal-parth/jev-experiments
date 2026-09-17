@@ -134,7 +134,7 @@ class JevClient:
             if response.status_code in {429, 529, 503} and attempt < 2:
                 time.sleep(0.4 * 2**attempt)
                 continue
-            if response.status_code in {503, 529}:
+            if response.status_code in {402, 503, 529}:
                 from dino_jev.heuristic import heuristic_answers
 
                 return (
