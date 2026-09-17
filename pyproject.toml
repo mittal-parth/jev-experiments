@@ -3,13 +3,14 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "krunker-jev"
+name = "jev-experiments"
 version = "0.1.0"
-description = "A TypeSafe Jev combat loop in a Krunker-style arena."
+description = "TypeSafe Jev loops for a Krunker-style arena and Chrome Dino."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "httpx>=0.27",
+    "playwright>=1.40",
 ]
 
 [project.optional-dependencies]
@@ -17,12 +18,14 @@ dev = ["pytest>=8.0"]
 
 [project.scripts]
 krunker-jev = "krunker_jev.cli:main"
+dino-jev = "dino_jev.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["krunker_jev*"]
+include = ["krunker_jev*", "dino_jev*"]
 
 [tool.setuptools.package-data]
 krunker_jev = ["static/*"]
+dino_jev = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

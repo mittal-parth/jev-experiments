@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dino-Jev</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div>
+        <p class="kicker">TypeSafe System One · Jev</p>
+        <h1>Chrome Dino loop</h1>
+      </div>
+      <div class="hud-strip" id="hud"></div>
+    </header>
+    <main>
+      <section class="arena-pane">
+        <img id="frame" alt="chrome://dino/ view" />
+        <p class="caption">
+          Structured <code>Runner.getInstance()</code> state in, typed jump/duck
+          out. This image is a view. Jev never sees the pixels.
+        </p>
+      </section>
+      <aside class="panel">
+        <div class="controls">
+          <button id="start">Start</button>
+          <button id="step" class="ghost">Step</button>
+          <button id="stop" class="ghost">Stop</button>
+          <button id="reset" class="ghost">Reset</button>
+          <label>
+            Policy
+            <select id="policy">
+              <option value="heuristic">heuristic</option>
+              <option value="jev">jev</option>
+            </select>
+          </label>
+        </div>
+        <p class="status" id="status">idle</p>
+        <div id="intent"></div>
+        <div id="probs"></div>
+        <h2>Observation</h2>
+        <pre id="state"></pre>
+      </aside>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>
