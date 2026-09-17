@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Krunker-Jev</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div>
+        <p class="kicker">TypeSafe System One · Jev</p>
+        <h1>Krunker combat loop</h1>
+      </div>
+      <div class="hud-strip" id="hud"></div>
+    </header>
+    <main>
+      <section class="arena-pane">
+        <canvas id="arena" width="720" height="450"></canvas>
+        <p class="caption">
+          Structured state in, typed actions out. The canvas is a view of the
+          same world Jev never sees as pixels.
+        </p>
+      </section>
+      <aside class="panel">
+        <div class="controls">
+          <button id="start">Start</button>
+          <button id="step" class="ghost">Step</button>
+          <button id="stop" class="ghost">Stop</button>
+          <button id="reset" class="ghost">Reset</button>
+          <label>
+            Policy
+            <select id="policy">
+              <option value="heuristic">heuristic</option>
+              <option value="jev">jev</option>
+            </select>
+          </label>
+        </div>
+        <p class="status" id="status">idle</p>
+        <div id="intent"></div>
+        <div id="probs"></div>
+        <h2>Observation</h2>
+        <pre id="state"></pre>
+      </aside>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>
