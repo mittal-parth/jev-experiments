@@ -20,7 +20,7 @@
   jev.speed = 0;
   jev.gap = null;
   jev._hudAt = 0;
-  jev.config = { leadFrames: LEAD_FRAMES, lastChanceFrames: 2 };
+  jev.config = { leadFrames: LEAD_FRAMES, lastChanceFrames: 2, jevLeadBoost: 14 };
 
   function hit(dx, dy, dw, dh, ox, oy, ow, oh) {
     return (
@@ -91,6 +91,7 @@
       const type = (obstacle.typeConfig && obstacle.typeConfig.type) || "";
       const height = (obstacle.typeConfig && obstacle.typeConfig.height) || 35;
       out.push({
+        id: "o" + out.length,
         x: obstacle.xPos,
         y: obstacle.yPos,
         w: width,
@@ -164,6 +165,108 @@
     jev.action = action;
   }
 
+  function holdsForClusteredHop(obstacles, speed, dinoX, groundY) {
+    if (!jumpClears(obstacles, speed, dinoX, groundY)) return false;
+    const delayed = obstacles.map((obs) => ({ ...obs, x: obs.x - speed }));
+    return jumpClears(delayed, speed, dinoX, groundY);
+  }
+
+  function shouldCommitSingleJumpNow(obstacles, speed, dinoX, groundY) {
+    if (holdsForClusteredHop(obstacles, speed, dinoX, groundY)) return false;
+    if (!jumpClears(obstacles, speed, dinoX, groundY)) return false;
+    const delayed = obstacles.map((obs) => ({ ...obs, x: obs.x - speed }));
+    return !jumpClears(delayed, speed, dinoX, groundY);
+  }
+
+  function armedDuckNow(inst, obstacles, speed, dinoX, groundY) {
+    const stand = firstHit(obstacles, speed, dinoX, groundY, DINO_W, DINO_H, 18);
+    const duckHit = firstHit(
+      obstacles,
+      speed,
+      dinoX,
+      groundY + (DINO_H - DINO_DUCK_H),
+      DINO_DUCK_W,
+      DINO_DUCK_H,
+      14
+    );
+    return stand !== null && duckHit === null;
+  }
+
+  function applyJevIntent(inst, action) {
+    if (!inst || !inst.tRex) return;
+    const trex = inst.tRex;
+    if (inst.crashed || !inst.playing || inst.playingIntro || trex.jumping) return;
+    const obstacles = packObstacles(inst);
+    const nearest = obstacles[0] || null;
+    const how = nearest ? clearance(nearest) : "clear";
+    const speed = inst.currentSpeed;
+    const dinoX = trex.xPos;
+    const groundY = trex.groundYPos;
+    if (action === "run") {
+      if (trex.ducking) trex.setDuck(false);
+      jev.armed = null;
+      jev.armedId = null;
+      jev.armGap = null;
+      jev.action = "run";
+      return;
+    }
+    if (action === "jump" && (how === "ground" || how === "low")) {
+      if (shouldCommitSingleJumpNow(obstacles, speed, dinoX, groundY)) {
+        act(inst, "jump");
+        jev.armed = null;
+        jev.armedId = null;
+        jev.armGap = null;
+        return;
+      }
+      jev.armed = "jump";
+      if (nearest) jev.armedId = nearest.id;
+      return;
+    }
+    if (action === "duck" && how === "mid") {
+      act(inst, "duck");
+      jev.armed = null;
+      jev.armedId = null;
+      jev.armGap = null;
+    }
+  }
+
+  function timeArmed(inst) {
+    if (jev.provider !== "jev" || !jev.armed) return;
+    const trex = inst.tRex;
+    if (!trex || trex.jumping || inst.crashed || inst.playingIntro || !inst.playing) return;
+    const obstacles = packObstacles(inst);
+    const nearest = obstacles[0] || null;
+    if (!nearest) return;
+    if (jev.armedId != null && nearest.id !== jev.armedId) {
+      jev.armed = null;
+      jev.armedId = null;
+      jev.armGap = null;
+      return;
+    }
+    const armed = jev.armed;
+    const how = clearance(nearest);
+    const speed = inst.currentSpeed;
+    const dinoX = trex.xPos;
+    const groundY = trex.groundYPos;
+    if (armed === "jump" && (how === "ground" || how === "low")) {
+      if (decide(inst) === "jump") {
+        act(inst, "jump");
+        jev.armed = null;
+        jev.armedId = null;
+        jev.armGap = null;
+      }
+      return;
+    }
+    if (armed === "duck" && how === "mid") {
+      if (armedDuckNow(inst, obstacles, speed, dinoX, groundY)) {
+        act(inst, "duck");
+        jev.armed = null;
+        jev.armedId = null;
+        jev.armGap = null;
+      }
+    }
+  }
+
   function bar(label, value, win, color) {
     const p = Math.max(0, Math.min(100, Math.round((Number(value) || 0) * 100)));
     return (
@@ -182,7 +285,61 @@
     );
   }
 
+  function mountStartButton() {
+    let wrap = jev._startWrap || document.getElementById("dino-jev-start-wrap");
+    if (wrap) {
+      jev._startWrap = wrap;
+      jev._startBtn = wrap.querySelector("#dino-jev-start");
+      return wrap;
+    }
+    wrap = document.createElement("div");
+    wrap.id = "dino-jev-start-wrap";
+    wrap.style.cssText = [
+      "position:fixed",
+      "top:28px",
+      "left:50%",
+      "transform:translateX(-50%)",
+      "z-index:100000",
+      "pointer-events:auto",
+    ].join(";");
+    const btn = document.createElement("button");
+    btn.id = "dino-jev-start";
+    btn.type = "button";
+    btn.textContent = "Start";
+    btn.style.cssText = [
+      "background:#ff6a00",
+      "color:#140800",
+      "border:0",
+      "border-radius:12px",
+      "padding:14px 32px",
+      "font:700 22px/1.1 ui-sans-serif, system-ui, sans-serif",
+      "letter-spacing:0.06em",
+      "cursor:pointer",
+      "box-shadow:0 10px 28px rgba(0,0,0,0.35)",
+    ].join(";");
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      jev.pendingCommand = "start";
+    });
+    wrap.appendChild(btn);
+    document.documentElement.appendChild(wrap);
+    jev._startWrap = wrap;
+    jev._startBtn = btn;
+    return wrap;
+  }
+
+  function syncStartButton(inst) {
+    const wrap = mountStartButton();
+    const playing = !!(inst && inst.playing && !inst.crashed);
+    wrap.style.display = playing ? "none" : "block";
+    if (jev._startBtn) {
+      jev._startBtn.textContent = inst && inst.crashed ? "Restart" : "Start";
+    }
+  }
+
   function paintHud(inst) {
+    syncStartButton(inst);
     const now = performance.now();
     const seq = jev._replySeq || 0;
     const prevSeq = jev._paintedReply || 0;
@@ -237,8 +394,15 @@
     const reply = jev.reply;
     const asked = reply && reply.asked ? reply.asked : jev.action || "run";
     const exec = jev.action || (reply && reply.action) || "run";
+    const armed = jev.armed || (reply && reply.armed) || null;
     const gated = !!(reply && reply.gated);
     const latency = reply && reply.latency_ms != null ? Math.round(reply.latency_ms) + "ms" : "—";
+    const armGap =
+      reply && reply.arm_gap != null
+        ? Math.round(reply.arm_gap)
+        : jev.armGap != null
+          ? Math.round(jev.armGap)
+          : null;
     const conf = reply && reply.confidence != null ? Math.round(reply.confidence * 100) + "%" : "—";
     const lines = [
       '<div style="letter-spacing:0.12em;text-transform:uppercase;font-size:10px;color:#8b97ab">Dino-Jev · live TypeSafe · no pixels</div>',
@@ -250,6 +414,8 @@
         provider +
         "</span> ask <b>" +
         asked +
+        "</b> · arm <b>" +
+        (armed || "—") +
         "</b> · do <b>" +
         exec +
         "</b>" +
@@ -265,6 +431,7 @@
         (inst ? inst.currentSpeed.toFixed(2) : "0") +
         "  gap " +
         gapText +
+        (armGap != null ? "  arm@" + armGap + "px" : "") +
         "</div>",
     ];
     if (reply && reply.note) {
@@ -290,7 +457,7 @@
   }
 
   jev.tick = function tick(inst) {
-    if (!jev.enabled || jev.provider !== "heuristic") return;
+    if (!jev.enabled) return;
     if (!inst || !inst.playing || inst.crashed || inst.playingIntro) return;
     const trex = inst.tRex;
     if (trex && trex.config && !trex.playingIntro) {
@@ -300,13 +467,23 @@
       jev.action = "jump";
       return;
     }
-    act(inst, decide(inst));
+    if (jev.provider === "heuristic") {
+      act(inst, decide(inst));
+      return;
+    }
+    if (jev.provider === "jev") {
+      timeArmed(inst);
+    }
   };
 
   jev.paintHud = paintHud;
+  jev.timeArmed = timeArmed;
+  jev.applyJevIntent = applyJevIntent;
   jev._installed = true;
+  mountStartButton();
 
   const inst = typeof Runner !== "undefined" && Runner.getInstance && Runner.getInstance();
+  syncStartButton(inst);
   if (inst && !inst._jevBotWrapped) {
     const prev = inst.update.bind(inst);
     inst.update = function botUpdate() {

@@ -10,7 +10,7 @@ import time
 from typing import Any
 from urllib.parse import urlparse
 
-from dino_jev.loop import HEURISTIC_CHROME_DT, RunLoop, default_policy, make_client, make_session
+from dino_jev.loop import HEURISTIC_CHROME_DT, JEV_CHROME_DT, RunLoop, default_policy, make_client, make_session
 
 STATIC_DIR = Path(__file__).parent / "static"
 DEFAULT_PORT = 8766
@@ -37,8 +37,11 @@ class DinoServer:
         self.lock = threading.Lock()
         self.session = self._new_session()
         loop_kwargs: dict = {}
-        if self.policy_name == "heuristic" and self.backend == "chrome":
-            loop_kwargs["dt"] = HEURISTIC_CHROME_DT
+        if self.backend == "chrome":
+            if self.policy_name == "heuristic":
+                loop_kwargs["dt"] = HEURISTIC_CHROME_DT
+            elif self.policy_name == "jev":
+                loop_kwargs["dt"] = JEV_CHROME_DT
         self.loop = RunLoop(self.session, make_client(self.policy_name), **loop_kwargs)
         self.running = False
         self.error: str | None = None
@@ -134,8 +137,11 @@ class DinoServer:
         if hasattr(self.session, "set_control"):
             self.session.set_control(self.policy_name)
         loop_kwargs: dict = {}
-        if self.policy_name == "heuristic" and self.backend == "chrome":
-            loop_kwargs["dt"] = HEURISTIC_CHROME_DT
+        if self.backend == "chrome":
+            if self.policy_name == "heuristic":
+                loop_kwargs["dt"] = HEURISTIC_CHROME_DT
+            elif self.policy_name == "jev":
+                loop_kwargs["dt"] = JEV_CHROME_DT
         self.loop = RunLoop(self.session, make_client(self.policy_name), **loop_kwargs)
         self.error = None
 
@@ -150,11 +156,25 @@ class DinoServer:
                 self.session.restart()
                 self.session.start_run()
 
+    def _page_command(self) -> tuple[str, str | None] | None:
+        poller = getattr(self.session, "poll_command", None)
+        if not callable(poller):
+            return None
+        try:
+            action = poller()
+        except Exception:
+            return None
+        if action in {"start", "stop", "reset", "step"}:
+            return (str(action), None)
+        return None
+
     def pump(self) -> None:
         """Advance queued commands and the run loop on the Playwright thread."""
         with self.lock:
             pending = self._pending
             self._pending = None
+        if pending is None:
+            pending = self._page_command()
         if pending is not None:
             action, policy = pending
             try:

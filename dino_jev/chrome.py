@@ -85,6 +85,14 @@ SNAPSHOT_JS = """(cap) => {
   };
 }"""
 
+POLL_COMMAND_JS = """() => {
+  const jev = window.__dinoJev;
+  if (!jev || !jev.pendingCommand) return null;
+  const cmd = jev.pendingCommand;
+  jev.pendingCommand = null;
+  return cmd;
+}"""
+
 HUD_JS = """(payload) => {
   const jev = window.__dinoJev;
   if (!jev) return false;
@@ -199,18 +207,43 @@ PATCH_DT_JS = """() => {
 APPLY_JS = """(payload) => {
   const inst = Runner.getInstance();
   const action = payload && payload.action;
+  const provider = payload && payload.provider;
   const jev = window.__dinoJev;
   if (jev) {
-    jev.provider = (payload && payload.provider) || jev.provider;
+    jev.provider = provider || jev.provider;
     if (!payload || payload.set_action !== false) jev.action = action;
     jev.reply = payload;
     jev._replySeq = (jev._replySeq || 0) + 1;
+    if (provider === "jev") {
+      if (action === "jump" || action === "duck") {
+        jev.armed = action;
+        jev.armedId = payload.armed_id || null;
+        jev.armGap = payload.arm_gap != null ? payload.arm_gap : null;
+      } else {
+        jev.armed = null;
+        jev.armedId = null;
+        jev.armGap = null;
+      }
+    }
     if (typeof jev.paintHud === "function") jev.paintHud(inst);
+    if (provider === "jev" && typeof jev.applyJevIntent === "function") {
+      jev.applyJevIntent(inst, action);
+    }
   }
   if (!inst || !inst.tRex) return { ok: false };
   const t = inst.tRex;
   if (inst.crashed || !inst.playing || inst.playingIntro) {
     return { ok: true, skipped: true, crashed: !!inst.crashed };
+  }
+  if (provider === "jev") {
+    if (action === "run" && t.ducking) t.setDuck(false);
+    return {
+      ok: true,
+      armed: jev && jev.armed,
+      jumping: !!t.jumping,
+      ducking: !!t.ducking,
+      y: t.yPos,
+    };
   }
   if (action === "jump" && !t.jumping && !t.ducking) {
     t.startJump(inst.currentSpeed);
@@ -289,8 +322,8 @@ ARCADE_JS = """() => {
     if (typeof inst.setArcadeMode === "function") inst.setArcadeMode();
     if (el) {
       const match = /scale\\(([-\\d.]+)/.exec(el.style.transform || "");
-      const internatScale = match ? Number(match[1]) : 0;
-      if (!(internatScale > 1.15)) {
+      const arcadeScale = match ? Number(match[1]) : 0;
+      if (!(arcadeScale > 1.15)) {
         const scale = Math.max(
           1,
           Math.min(window.innerWidth / logicalW, window.innerHeight / logicalH)
@@ -397,7 +430,7 @@ class ChromeDino:
         )
         self._page.evaluate(PATCH_DT_JS)
         self._page.evaluate(BOT_JS)
-        self._set_bot_control(self.in_page_control, self.provider, self.lead_frames)
+        self._set_bot_control(True, self.provider, self.lead_frames)
         self._page.evaluate(PREP_PAGE_JS)
         self._enter_fullscreen()
         self._page.evaluate(ARCADE_JS)
@@ -427,31 +460,33 @@ class ChromeDino:
         except Exception:
             pass
 
-    def _set_bot_control(self, enabled: bool, provider: str, lead_frames: int | None = None) -> None:
-        self.in_page_control = enabled
+    def _set_bot_control(self, page_loop: bool, provider: str, lead_frames: int | None = None) -> None:
+        self.in_page_control = provider == "heuristic"
         self.provider = provider
         if lead_frames is not None:
             self.lead_frames = lead_frames
         self._page.evaluate(BOT_JS)
         self._page.evaluate(
-            """({enabled, provider, leadFrames}) => {
+            """({pageLoop, provider, leadFrames, jevLeadBoost}) => {
               const jev = window.__dinoJev;
               if (!jev) return false;
-              jev.enabled = !!enabled;
+              jev.enabled = !!pageLoop;
               jev.provider = provider;
               jev.config = jev.config || {};
               if (leadFrames != null) jev.config.leadFrames = leadFrames;
+              if (jevLeadBoost != null) jev.config.jevLeadBoost = jevLeadBoost;
               return true;
             }""",
             {
-                "enabled": enabled,
+                "pageLoop": page_loop,
                 "provider": provider,
                 "leadFrames": self.lead_frames,
+                "jevLeadBoost": 14,
             },
         )
 
     def set_control(self, policy: str) -> None:
-        self._set_bot_control(policy == "heuristic", policy, self.lead_frames)
+        self._set_bot_control(True, policy, self.lead_frames)
 
     def _key(self, key_code: int, down: bool) -> None:
         name = " " if key_code == KEY_JUMP else "ArrowDown"
@@ -482,6 +517,15 @@ class ChromeDino:
         elif not duck and self._duck_held:
             self._key(KEY_DUCK, False)
             self._duck_held = False
+
+    def poll_command(self) -> str | None:
+        try:
+            raw = self._page.evaluate(POLL_COMMAND_JS)
+        except Error:
+            return None
+        if raw in {"start", "stop", "reset", "step"}:
+            return str(raw)
+        return None
 
     def start_run(self) -> None:
         self._set_duck(False)
@@ -515,7 +559,7 @@ class ChromeDino:
             self._page.evaluate(CAP_SPEED_JS, self.speed_cap)
         self._page.evaluate(ARCADE_JS)
         self._page.evaluate(RESUME_JS)
-        self._set_bot_control(self.in_page_control, self.provider, self.lead_frames)
+        self._set_bot_control(True, self.provider, self.lead_frames)
 
     def restart(self) -> None:
         self._set_duck(False)
@@ -529,7 +573,7 @@ class ChromeDino:
             self._page.evaluate(CAP_SPEED_JS, self.speed_cap)
         self._page.evaluate(ARCADE_JS)
         self._page.evaluate(RESUME_JS)
-        self._set_bot_control(self.in_page_control, self.provider, self.lead_frames)
+        self._set_bot_control(True, self.provider, self.lead_frames)
 
     def close(self) -> None:
         self._set_duck(False)

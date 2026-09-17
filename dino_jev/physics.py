@@ -1,6 +1,6 @@
-"""Internat jump/duck from Runner boxes — not pixels and not a Python tick.
+"""Chrome dino jump/duck from Runner boxes — not pixels and not a Python tick.
 
-The Chrome page runs the same geometry on the internat update() loop.
+The Chrome page runs the same geometry on the runner update() loop.
 This module is the testable copy used by the heuristic answers.
 """
 
@@ -20,7 +20,7 @@ DINO_H = 47.0
 DINO_DUCK_W = 59.0
 DINO_DUCK_H = 25.0
 GROUND_Y = 93.0
-LEAD_FRAMES = 8  # internat frames before impact; lower = later jump (clusters)
+LEAD_FRAMES = 8  # runner frames before impact; lower = later jump (clusters)
 STAND_HORIZON = 55
 JUMP_HORIZON = 80
 
@@ -138,7 +138,7 @@ def jump_clears(
 
 
 def decide_action(state: dict[str, Any], *, lead_frames: int = LEAD_FRAMES) -> str:
-    """Return run / jump / duck from internat collision geometry."""
+    """Return run / jump / duck from runner collision geometry."""
     run = state.get("run") or {}
     dino = state.get("dino") or {}
     if run.get("crashed") or dino.get("jumping") or run.get("intro"):

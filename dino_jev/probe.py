@@ -1,4 +1,4 @@
-"""Confirm chrome://dino/ is the internat runner with structured state."""
+"""Confirm chrome://dino/ is the offline runner with structured state."""
 
 from __future__ import annotations
 

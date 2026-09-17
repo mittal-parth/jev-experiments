@@ -12,6 +12,7 @@ from dino_jev.policy import Intent, compose_intent, request_body
 
 DEFAULT_DT = 1 / 30
 HEURISTIC_CHROME_DT = 0.25
+JEV_CHROME_DT = 0.0
 
 
 class DinoSession(Protocol):
@@ -79,7 +80,9 @@ class RunLoop:
         self.last_state = self.session.observe()
 
     def tick(self) -> dict[str, Any]:
-        state = self.session.observe()
+        state = dict(self.session.observe())
+        if self.last_intent is not None:
+            state["last_latency_ms"] = round(float(self.last_intent.latency_ms), 1)
         body = request_body(state, self.model)
         answers, latency_ms = self.client.decide(body)
         intent = compose_intent(

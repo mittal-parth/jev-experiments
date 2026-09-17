@@ -42,6 +42,12 @@ class FakeDino:
         self.ticks = 0
         self.run_index = 0
         self.last_score = 0
+        self.pending_command: str | None = None
+
+    def poll_command(self) -> str | None:
+        cmd = self.pending_command
+        self.pending_command = None
+        return cmd
 
     def start_run(self) -> None:
         self.playing = True

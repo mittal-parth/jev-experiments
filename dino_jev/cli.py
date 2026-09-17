@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import time
 
-from dino_jev.loop import HEURISTIC_CHROME_DT, RunLoop, default_policy, make_client, make_session
+from dino_jev.loop import HEURISTIC_CHROME_DT, JEV_CHROME_DT, RunLoop, default_policy, make_client, make_session
 from dino_jev.probe import probe_dino
 from dino_jev.server import DEFAULT_PORT, serve
 
@@ -48,7 +48,7 @@ def main() -> None:
         "--lead-frames",
         type=int,
         default=8,
-        help="Internat frames before impact to jump if the hop still clears. Lower = later (wide clusters). Higher = earlier.",
+        help="Runner frames before impact to jump if the hop still clears. Lower = later (wide clusters). Higher = earlier.",
     )
     play.add_argument("--no-stop-on-crash", action="store_true")
 
@@ -64,7 +64,7 @@ def main() -> None:
         "--lead-frames",
         type=int,
         default=8,
-        help="Internat frames before impact to jump if the hop still clears. Lower = later (wide clusters). Higher = earlier.",
+        help="Runner frames before impact to jump if the hop still clears. Lower = later (wide clusters). Higher = earlier.",
     )
 
     sub.add_parser("probe-dino", help="Confirm chrome://dino/ exposes Runner.getInstance()")
@@ -84,8 +84,11 @@ def main() -> None:
             }
         session = make_session(args.backend, **session_kwargs)
         loop_kwargs: dict = {}
-        if policy == "heuristic" and args.backend == "chrome":
-            loop_kwargs["dt"] = HEURISTIC_CHROME_DT
+        if args.backend == "chrome":
+            if policy == "heuristic":
+                loop_kwargs["dt"] = HEURISTIC_CHROME_DT
+            elif policy == "jev":
+                loop_kwargs["dt"] = JEV_CHROME_DT
         loop = RunLoop(session, make_client(policy), **loop_kwargs)
         started = time.perf_counter()
         try:
