@@ -120,6 +120,7 @@ FORCE_ACTIVATE_JS = """() => {
   if (inst.tRex.xPos < inst.tRex.config.startXPos) {
     inst.tRex.xPos = inst.tRex.config.startXPos;
   }
+  inst.tRex.xInitialPos = inst.tRex.config.startXPos;
   if (!inst.raqId) inst.update();
   return true;
 }"""
@@ -147,18 +148,6 @@ PATCH_DT_JS = """() => {
     inst.adjustDimensions = function patchedAdjust() {
       const wasPlaying = this.playing && !this.crashed;
       innerAdjust();
-      if (this.isArcadeMode && this.isArcadeMode() && this.dimensions && this.dimensions.width > 600) {
-        this.dimensions.width = 600;
-        if (this.canvas) this.canvas.width = 600;
-        if (this.containerEl) {
-          this.containerEl.style.width = "600px";
-          this.containerEl.style.height = (this.dimensions.height || 150) + "px";
-        }
-        if (this.distanceMeter && typeof this.distanceMeter.calcXpos === "function") {
-          this.distanceMeter.calcXpos(600);
-        }
-        if (typeof this.setArcadeMode === "function") this.setArcadeMode();
-      }
       if (wasPlaying && !this.crashed) {
         this.paused = false;
         this.setPlayStatus(true);
@@ -218,15 +207,31 @@ ARCADE_JS = """() => {
   }
   try {
     document.body.classList.add("arcade-mode");
-    if (inst.dimensions) inst.dimensions.width = 600;
-    if (inst.canvas) inst.canvas.width = 600;
-    if (inst.containerEl) {
-      inst.containerEl.style.width = "600px";
-      inst.containerEl.style.height = ((inst.dimensions && inst.dimensions.height) || 150) + "px";
-    }
     if (inst.slowSpeedToggleEl) inst.slowSpeedToggleEl.style.display = "none";
     if (inst.slowSpeedCheckboxLabel) inst.slowSpeedCheckboxLabel.style.display = "none";
-    if (typeof inst.setArcadeMode === "function") inst.setArcadeMode();
+    const trex = inst.tRex;
+    if (trex && trex.config && !inst.playingIntro && !trex.playingIntro) {
+      trex.xInitialPos = trex.config.startXPos;
+      trex.xPos = trex.config.startXPos;
+    }
+    if (typeof inst.setArcadeMode === "function" && inst.isArcadeMode && inst.isArcadeMode()) {
+      inst.setArcadeMode();
+    }
+    const el = inst.containerEl;
+    if (el) {
+      const match = /scale\\(([-\\d.]+)/.exec(el.style.transform || "");
+      const internatScale = match ? Number(match[1]) : 1;
+      if (!(internatScale > 1.15)) {
+        const cssW = el.offsetWidth || (inst.dimensions && inst.dimensions.width) || 600;
+        const cssH = el.offsetHeight || (inst.dimensions && inst.dimensions.height) || 150;
+        const scale = Math.max(
+          1,
+          Math.min(window.innerWidth / cssW, (window.innerHeight * 0.48) / cssH)
+        );
+        el.style.transformOrigin = "center center";
+        el.style.transform = "scale(" + scale + ")";
+      }
+    }
   } catch (err) {}
   return true;
 }"""
@@ -270,6 +275,7 @@ class ChromeDino:
         fullscreen: bool = True,
         window_size: tuple[int, int] | None = None,
         in_page_control: bool = True,
+        lead_frames: int = 8,
     ) -> None:
         self.headed = headed
         self.speed_cap = speed_cap
@@ -277,6 +283,7 @@ class ChromeDino:
         self.fullscreen = fullscreen and headed
         self.window_size = window_size or (1920, 1200)
         self.in_page_control = in_page_control
+        self.lead_frames = lead_frames
         self.last_intent: Intent | None = None
         width, height = self.window_size
         launch_args = [
@@ -321,7 +328,7 @@ class ChromeDino:
         )
         self._page.evaluate(PATCH_DT_JS)
         self._page.evaluate(BOT_JS)
-        self._set_bot_control(self.in_page_control, "heuristic")
+        self._set_bot_control(self.in_page_control, "heuristic", self.lead_frames)
         self._page.evaluate(PREP_PAGE_JS)
         self._enter_fullscreen()
         self._page.evaluate(ARCADE_JS)
@@ -351,22 +358,30 @@ class ChromeDino:
         except Exception:
             pass
 
-    def _set_bot_control(self, enabled: bool, provider: str) -> None:
+    def _set_bot_control(self, enabled: bool, provider: str, lead_frames: int | None = None) -> None:
         self.in_page_control = enabled
+        if lead_frames is not None:
+            self.lead_frames = lead_frames
         self._page.evaluate(BOT_JS)
         self._page.evaluate(
-            """({enabled, provider}) => {
+            """({enabled, provider, leadFrames}) => {
               const jev = window.__dinoJev;
               if (!jev) return false;
               jev.enabled = !!enabled;
               jev.provider = provider;
+              jev.config = jev.config || {};
+              if (leadFrames != null) jev.config.leadFrames = leadFrames;
               return true;
             }""",
-            {"enabled": enabled, "provider": provider},
+            {
+                "enabled": enabled,
+                "provider": provider,
+                "leadFrames": self.lead_frames,
+            },
         )
 
     def set_control(self, policy: str) -> None:
-        self._set_bot_control(policy == "heuristic", policy)
+        self._set_bot_control(policy == "heuristic", policy, self.lead_frames)
 
     def _key(self, key_code: int, down: bool) -> None:
         name = " " if key_code == KEY_JUMP else "ArrowDown"
@@ -431,7 +446,7 @@ class ChromeDino:
         self._page.evaluate(ARCADE_JS)
         self._page.evaluate(RESUME_JS)
         if self.in_page_control:
-            self._set_bot_control(True, "heuristic")
+            self._set_bot_control(True, "heuristic", self.lead_frames)
 
     def restart(self) -> None:
         self._set_duck(False)
@@ -446,7 +461,7 @@ class ChromeDino:
         self._page.evaluate(ARCADE_JS)
         self._page.evaluate(RESUME_JS)
         if self.in_page_control:
-            self._set_bot_control(True, "heuristic")
+            self._set_bot_control(True, "heuristic", self.lead_frames)
 
     def close(self) -> None:
         self._set_duck(False)

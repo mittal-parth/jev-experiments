@@ -45,6 +45,7 @@ The command launches Chromium itself on `chrome://dino/` in fullscreen arcade mo
 - Without a key the loop uses `heuristic` (in-page collision bot, clearly labeled).
 - With `JEV_API_KEY` or `TYPESAFE_API_KEY` set, it defaults to **jev**.
 - `--speed-cap 9` (default) keeps `maxSpeed` just above pterodactyl spawn (`8.5`) so Jev's ~80ms tick can still commit. `--speed-cap none` is full internat acceleration.
+- `--lead-frames 8` (default) is how many internat frames before a standing collision we jump, if the hop still clears. **Lower** (4–6) jumps later — better on clustered cacti, easier to clip the first one. **Higher** (10–14) jumps earlier — safer on singles, lands on wide clusters.
 - Internat pauses on window blur and on resize. Dino-Jev patches those so the runner keeps going while the inspector or another window is focused.
 - Pass `--windowed` for a normal window.
 

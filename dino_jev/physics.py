@@ -137,7 +137,7 @@ def jump_clears(
     return True
 
 
-def decide_action(state: dict[str, Any]) -> str:
+def decide_action(state: dict[str, Any], *, lead_frames: int = LEAD_FRAMES) -> str:
     """Return run / jump / duck from internat collision geometry."""
     run = state.get("run") or {}
     dino = state.get("dino") or {}
@@ -189,7 +189,7 @@ def decide_action(state: dict[str, Any]) -> str:
     clears_now = jump_clears(obstacles, speed=speed, dino_x=dino_x, ground_y=ground_y)
     if clears_now:
         clears_next = jump_clears(delayed, speed=speed, dino_x=dino_x, ground_y=ground_y)
-        if stand_hit <= LEAD_FRAMES or not clears_next:
+        if stand_hit <= lead_frames or not clears_next:
             return "jump"
         return "run"
     if stand_hit <= 2:

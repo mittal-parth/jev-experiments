@@ -20,6 +20,7 @@
   jev.speed = 0;
   jev.gap = null;
   jev._hudAt = 0;
+  jev.config = { leadFrames: LEAD_FRAMES, lastChanceFrames: 2 };
 
   function hit(dx, dy, dw, dh, ox, oy, ow, oh) {
     return (
@@ -140,12 +141,14 @@
     }
     const standHit = firstHit(obstacles, speed, dinoX, groundY, DINO_W, DINO_H, STAND_HORIZON);
     if (standHit === null) return "run";
+    const lead = (jev.config && jev.config.leadFrames) || LEAD_FRAMES;
+    const lastChance = (jev.config && jev.config.lastChanceFrames) || 2;
     const delayed = obstacles.map((obs) => ({ ...obs, x: obs.x - speed }));
     if (jumpClears(obstacles, speed, dinoX, groundY)) {
-      if (standHit <= LEAD_FRAMES || !jumpClears(delayed, speed, dinoX, groundY)) return "jump";
+      if (standHit <= lead || !jumpClears(delayed, speed, dinoX, groundY)) return "jump";
       return "run";
     }
-    if (standHit <= 2) return "jump";
+    if (standHit <= lastChance) return "jump";
     return "run";
   }
 
@@ -215,7 +218,11 @@
         "</div>",
       "<div>score <b>" + score + "</b>  speed " + (inst ? inst.currentSpeed.toFixed(2) : "0") + "</div>",
       "<div>gap " + gapText + "</div>",
-      "<div>control " + (jev.enabled ? "internat 60fps boxes" : "python tick") + "</div>",
+      "<div>control " +
+        (jev.enabled ? "internat 60fps boxes" : "python tick") +
+        "  lead " +
+        ((jev.config && jev.config.leadFrames) || LEAD_FRAMES) +
+        "</div>",
     ].join("");
   }
 
@@ -223,6 +230,9 @@
     if (!jev.enabled || jev.provider !== "heuristic") return;
     if (!inst || !inst.playing || inst.crashed || inst.playingIntro) return;
     const trex = inst.tRex;
+    if (trex && trex.config && !trex.playingIntro) {
+      trex.xInitialPos = trex.config.startXPos;
+    }
     if (trex && trex.jumping) {
       jev.action = "jump";
       return;

@@ -44,6 +44,12 @@ def main() -> None:
     play.add_argument("--headless", action="store_true")
     play.add_argument("--windowed", action="store_true", help="Do not fullscreen the Chrome window")
     play.add_argument("--speed-cap", type=_speed_cap, default=9.0)
+    play.add_argument(
+        "--lead-frames",
+        type=int,
+        default=8,
+        help="Internat frames before impact to jump if the hop still clears. Lower = later (wide clusters). Higher = earlier.",
+    )
     play.add_argument("--no-stop-on-crash", action="store_true")
 
     serve_cmd = sub.add_parser("serve", help="Open the local inspector")
@@ -54,6 +60,12 @@ def main() -> None:
     serve_cmd.add_argument("--headless", action="store_true")
     serve_cmd.add_argument("--windowed", action="store_true", help="Do not fullscreen the Chrome window")
     serve_cmd.add_argument("--speed-cap", type=_speed_cap, default=9.0)
+    serve_cmd.add_argument(
+        "--lead-frames",
+        type=int,
+        default=8,
+        help="Internat frames before impact to jump if the hop still clears. Lower = later (wide clusters). Higher = earlier.",
+    )
 
     sub.add_parser("probe-dino", help="Confirm chrome://dino/ exposes Runner.getInstance()")
 
@@ -67,6 +79,7 @@ def main() -> None:
                 "speed_cap": args.speed_cap,
                 "fullscreen": not args.windowed and not args.headless,
                 "in_page_control": policy == "heuristic",
+                "lead_frames": args.lead_frames,
             }
         session = make_session(args.backend, **session_kwargs)
         loop_kwargs: dict = {}
@@ -118,6 +131,7 @@ def main() -> None:
             headed=not args.headless,
             speed_cap=args.speed_cap,
             fullscreen=not args.windowed and not args.headless,
+            lead_frames=args.lead_frames,
         )
         return
     if args.cmd == "probe-dino":

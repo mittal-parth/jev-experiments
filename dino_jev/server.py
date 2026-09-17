@@ -25,6 +25,7 @@ class DinoServer:
         speed_cap: float | None = 9.0,
         auto_restart: bool = True,
         fullscreen: bool = True,
+        lead_frames: int = 8,
     ) -> None:
         self.policy_name = policy or default_policy()
         self.backend = backend
@@ -32,6 +33,7 @@ class DinoServer:
         self.speed_cap = speed_cap
         self.auto_restart = auto_restart
         self.fullscreen = fullscreen and headed
+        self.lead_frames = lead_frames
         self.lock = threading.Lock()
         self.session = self._new_session()
         loop_kwargs: dict = {}
@@ -56,6 +58,7 @@ class DinoServer:
             speed_cap=self.speed_cap,
             fullscreen=self.fullscreen,
             in_page_control=self.policy_name == "heuristic",
+            lead_frames=self.lead_frames,
         )
 
     def snapshot(self) -> dict[str, Any]:
@@ -255,6 +258,7 @@ def serve(
     headed: bool = True,
     speed_cap: float | None = 9.0,
     fullscreen: bool = True,
+    lead_frames: int = 8,
 ) -> None:
     arena = DinoServer(
         policy=policy,
@@ -262,6 +266,7 @@ def serve(
         headed=headed,
         speed_cap=speed_cap,
         fullscreen=fullscreen,
+        lead_frames=lead_frames,
     )
     server = ThreadingHTTPServer((host, port), make_handler(arena))
     threading.Thread(target=server.serve_forever, daemon=True).start()

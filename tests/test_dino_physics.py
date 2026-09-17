@@ -83,6 +83,12 @@ def test_early_wide_cactus_does_not_clear_a_jump():
     assert jump_clears(close["obstacles"], speed=6.0, dino_x=50.0, ground_y=93.0) is True
 
 
+def test_higher_lead_jumps_sooner_on_a_still_clearable_cactus():
+    state = _cactus(gap_px=80, width=51)
+    assert decide_action(state, lead_frames=8) == "run"
+    assert decide_action(state, lead_frames=16) == "jump"
+
+
 def test_heuristic_uses_physics_jump():
     state = _cactus(gap_px=40, tti=0.11)
     answers = heuristic_answers(state)
