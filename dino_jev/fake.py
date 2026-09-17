@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from dino_jev.policy import Intent, obstacle_clearance
+from dino_jev.timing_state import enrich_timing
 
 WIDTH = 600
 HEIGHT = 150
@@ -83,7 +84,7 @@ class FakeDino:
             ),
         }
         score = int(round(self.distance_ran * SCORE_COEFFICIENT))
-        return {
+        observation = {
             "goal": (
                 "Survive as long as possible in Chrome's offline dinosaur runner. "
                 "Jump cacti and low pterodactyls. Duck mid-height pterodactyls."
@@ -110,6 +111,8 @@ class FakeDino:
             "obstacles": [] if self.crashed else [obstacle],
             "last_action": None if self.last_intent is None else self.last_intent.action,
         }
+        enrich_timing(observation, lead_frames=8)
+        return observation
 
     def apply(self, intent: Intent) -> None:
         self.last_intent = intent

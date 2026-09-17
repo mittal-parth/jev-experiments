@@ -93,6 +93,6 @@ def test_heuristic_does_not_jump_too_early_on_wide_cactus():
 def test_heuristic_client_matches_questions():
     client = HeuristicClient()
     state = _cactus()
-    answers, latency = client.decide(request_body(state, "jev-latest"))
+    answers, latency, _usage = client.decide(request_body(state, "jev-latest"))
     assert latency == 0.4
     assert set(answers) == {"action", "jump_now", "duck_now", "urgency"}

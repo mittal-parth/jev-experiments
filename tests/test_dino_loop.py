@@ -36,7 +36,7 @@ class ScriptedClient:
     provider = "fixture"
 
     def decide(self, body):
-        return jump_answers(body["state"]), 1.0
+        return jump_answers(body["state"]), 1.0, None
 
 
 def test_make_client_and_default_policy(monkeypatch):
@@ -71,7 +71,8 @@ def test_fixture_client_validates_bundle():
     state = session.observe()
     answers = jump_answers(state)
     client = FixtureClient(answers)
-    got, latency = client.decide(request_body(state, "jev-latest"))
+    got, latency, usage = client.decide(request_body(state, "jev-latest"))
     assert got["action"]["choice"] == "jump"
     assert latency == 1.0
+    assert usage is None
     session.close()

@@ -42,6 +42,10 @@ ACTION_INSTRUCTIONS: dict[str, Any] = {
         "nearest_obstacle.gap_px",
         "nearest_obstacle.time_to_impact_s",
         "nearest_obstacle.clearance",
+        "timing.recommended_action",
+        "timing.stand_hit_frame",
+        "timing.jump_clears",
+        "timing.lead_frames",
         "dino.jumping",
         "dino.ducking",
         "run.speed",
@@ -49,6 +53,7 @@ ACTION_INSTRUCTIONS: dict[str, Any] = {
     ],
     "rules": [
         "Pick one action. jump_now and duck_now are separate speculative questions.",
+        "timing.recommended_action is internat geometry for this frame; match it unless clearance is high.",
         "run if the nearest obstacle is far, already being cleared, or clearance is high.",
         "jump when clearance is ground or low and time_to_impact_s is inside the commit window.",
         "duck only when clearance is mid. Never duck a cactus (clearance ground).",

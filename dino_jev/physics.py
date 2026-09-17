@@ -137,6 +137,54 @@ def jump_clears(
     return True
 
 
+def _duck_box_hits_now(
+    obstacles: list[dict[str, Any]],
+    *,
+    dino_x: float,
+    ground_y: float,
+) -> bool:
+    duck_y = ground_y + (DINO_H - DINO_DUCK_H)
+    for obs in obstacles:
+        if _hit(
+            dino_x,
+            duck_y,
+            DINO_DUCK_W,
+            DINO_DUCK_H,
+            obs["x"],
+            obs["y"],
+            obs["width"],
+            obs["height"],
+        ):
+            return True
+    return False
+
+
+def _mid_bird_blocking(obstacle: dict[str, Any], dino_x: float, dino_w: float = DINO_W) -> bool:
+    return float(obstacle["x"]) + float(obstacle["width"]) >= dino_x + dino_w - 4
+
+
+def _duck_clears_mid(
+    obstacles: list[dict[str, Any]],
+    *,
+    speed: float,
+    dino_x: float,
+    ground_y: float,
+) -> bool:
+    duck_y = ground_y + (DINO_H - DINO_DUCK_H)
+    return (
+        first_hit_frame(
+            obstacles,
+            speed=speed,
+            dino_x=dino_x,
+            dino_y=duck_y,
+            dino_w=DINO_DUCK_W,
+            dino_h=DINO_DUCK_H,
+            max_frames=24,
+        )
+        is None
+    )
+
+
 def decide_action(state: dict[str, Any], *, lead_frames: int = LEAD_FRAMES) -> str:
     """Return run / jump / duck from internat collision geometry."""
     run = state.get("run") or {}
@@ -144,15 +192,23 @@ def decide_action(state: dict[str, Any], *, lead_frames: int = LEAD_FRAMES) -> s
     if run.get("crashed") or dino.get("jumping") or run.get("intro"):
         return "run"
     obstacles = _obstacles(state)
-    if not obstacles:
-        return "run"
     speed = float(run.get("speed") or 6.0)
     dino_x = float(dino.get("x") or 50.0)
     ground_y = float(dino.get("ground_y") or GROUND_Y)
+    ducking = bool(dino.get("ducking"))
+    if ducking:
+        if obstacles and obstacle_clearance(obstacles[0]) == "mid":
+            dino_w = float(dino.get("width") or DINO_W)
+            if _mid_bird_blocking(obstacles[0], dino_x, dino_w):
+                return "duck"
+        return "run"
+    if not obstacles:
+        return "run"
     clearance = obstacle_clearance(obstacles[0])
     if clearance == "high" or clearance == "clear":
         return "run"
     if clearance == "mid":
+        horizon = max(22, int(round(lead_frames + speed * 0.35)))
         stand = first_hit_frame(
             obstacles,
             speed=speed,
@@ -160,18 +216,14 @@ def decide_action(state: dict[str, Any], *, lead_frames: int = LEAD_FRAMES) -> s
             dino_y=ground_y,
             dino_w=DINO_W,
             dino_h=DINO_H,
-            max_frames=18,
+            max_frames=horizon,
         )
-        duck_hit = first_hit_frame(
-            obstacles,
-            speed=speed,
-            dino_x=dino_x,
-            dino_y=ground_y + (DINO_H - DINO_DUCK_H),
-            dino_w=DINO_DUCK_W,
-            dino_h=DINO_DUCK_H,
-            max_frames=12,
-        )
-        if stand is not None and duck_hit is None:
+        close_enough = stand is not None and stand <= lead_frames
+        if (
+            close_enough
+            and not _duck_box_hits_now(obstacles, dino_x=dino_x, ground_y=ground_y)
+            and _duck_clears_mid(obstacles, speed=speed, dino_x=dino_x, ground_y=ground_y)
+        ):
             return "duck"
         return "run"
     stand_hit = first_hit_frame(

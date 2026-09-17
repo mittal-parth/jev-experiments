@@ -21,6 +21,7 @@
   jev.gap = null;
   jev._hudAt = 0;
   jev.config = { leadFrames: LEAD_FRAMES, lastChanceFrames: 2 };
+  jev.externalAction = null;
 
   function hit(dx, dy, dw, dh, ox, oy, ow, oh) {
     return (
@@ -98,7 +99,7 @@
         type,
         kind: type === "pterodactyl" ? "pterodactyl" : type.indexOf("cactus") === 0 ? "cactus" : "other",
       });
-      if (out.length >= 3) break;
+      if (out.length >= 5) break;
     }
     return out;
   }
@@ -114,29 +115,62 @@
     return "ground";
   }
 
+  function duckBoxHitsNow(obstacles, dinoX, groundY) {
+    const duckY = groundY + (DINO_H - DINO_DUCK_H);
+    for (const obs of obstacles) {
+      if (hit(dinoX, duckY, DINO_DUCK_W, DINO_DUCK_H, obs.x, obs.y, obs.w, obs.h)) return true;
+    }
+    return false;
+  }
+
+  function midBirdBlocking(nearest, dinoX, dinoW) {
+    return nearest && nearest.x + nearest.w >= dinoX + dinoW - 4;
+  }
+
+  function duckClearsMid(obstacles, speed, dinoX, groundY) {
+    const duckY = groundY + (DINO_H - DINO_DUCK_H);
+    return firstHit(obstacles, speed, dinoX, duckY, DINO_DUCK_W, DINO_DUCK_H, 24) === null;
+  }
+
   function decide(inst) {
     const trex = inst.tRex;
     if (!trex || trex.jumping || inst.crashed || inst.playingIntro || !inst.playing) return "run";
     const obstacles = packObstacles(inst);
-    if (!obstacles.length) return "run";
+    if (!obstacles.length) {
+      if (trex.ducking) {
+        jev._duckClear = (jev._duckClear || 0) + 1;
+        if (jev._duckClear < 5) return "duck";
+        jev._duckClear = 0;
+      }
+      return "run";
+    }
+    jev._duckClear = 0;
     const speed = inst.currentSpeed;
     const dinoX = trex.xPos;
     const groundY = trex.groundYPos;
+    if (trex.ducking) {
+      const nearest = obstacles[0];
+      const width = trex.ducking ? trex.config.widthDuck : trex.config.width;
+      if (nearest && clearance(nearest) === "mid" && midBirdBlocking(nearest, dinoX, width)) {
+        return "duck";
+      }
+      return "run";
+    }
     const nearest = obstacles[0];
     const how = clearance(nearest);
     if (how === "high" || how === "clear") return "run";
     if (how === "mid") {
-      const stand = firstHit(obstacles, speed, dinoX, groundY, DINO_W, DINO_H, 18);
-      const duckHit = firstHit(
-        obstacles,
-        speed,
-        dinoX,
-        groundY + (DINO_H - DINO_DUCK_H),
-        DINO_DUCK_W,
-        DINO_DUCK_H,
-        12
-      );
-      if (stand !== null && duckHit === null) return "duck";
+      const lead = (jev.config && jev.config.leadFrames) || LEAD_FRAMES;
+      const horizon = Math.max(22, Math.round(lead + speed * 0.35));
+      const stand = firstHit(obstacles, speed, dinoX, groundY, DINO_W, DINO_H, horizon);
+      const closeEnough = stand !== null && stand <= lead;
+      if (
+        closeEnough &&
+        !duckBoxHitsNow(obstacles, dinoX, groundY) &&
+        duckClearsMid(obstacles, speed, dinoX, groundY)
+      ) {
+        return "duck";
+      }
       return "run";
     }
     const standHit = firstHit(obstacles, speed, dinoX, groundY, DINO_W, DINO_H, STAND_HORIZON);
@@ -290,7 +324,18 @@
   }
 
   jev.tick = function tick(inst) {
-    if (!jev.enabled || jev.provider !== "heuristic") return;
+    if (!jev.enabled) return;
+    if (jev.provider === "jev") {
+      if (!inst || !inst.playing || inst.crashed || inst.playingIntro) return;
+      const trex = inst.tRex;
+      if (trex && trex.jumping) {
+        jev.action = "jump";
+        return;
+      }
+      act(inst, decide(inst));
+      return;
+    }
+    if (jev.provider !== "heuristic") return;
     if (!inst || !inst.playing || inst.crashed || inst.playingIntro) return;
     const trex = inst.tRex;
     if (trex && trex.config && !trex.playingIntro) {
@@ -310,11 +355,12 @@
   if (inst && !inst._jevBotWrapped) {
     const prev = inst.update.bind(inst);
     inst.update = function botUpdate() {
+      const out = prev();
       if (window.__dinoJev) {
         window.__dinoJev.tick(this);
         window.__dinoJev.paintHud(this);
       }
-      return prev();
+      return out;
     };
     inst._jevBotWrapped = true;
   }

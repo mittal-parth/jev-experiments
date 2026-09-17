@@ -29,8 +29,8 @@ def has_api_key() -> bool:
 class DecisionClient(Protocol):
     provider: str
 
-    def decide(self, body: dict[str, Any]) -> tuple[dict[str, Any], float]:
-        """Return (answers, latency_ms)."""
+    def decide(self, body: dict[str, Any]) -> tuple[dict[str, Any], float, dict[str, Any] | None]:
+        """Return (answers, latency_ms, usage)."""
 
 
 def validate_choice(answer: dict[str, Any], ids: set[str]) -> dict[str, Any]:
@@ -117,7 +117,7 @@ class JevClient:
     def close(self) -> None:
         self.http.close()
 
-    def decide(self, body: dict[str, Any]) -> tuple[dict[str, Any], float]:
+    def decide(self, body: dict[str, Any]) -> tuple[dict[str, Any], float, dict[str, Any] | None]:
         started = time.perf_counter()
         last_error: Exception | None = None
         for attempt in range(3):
@@ -134,13 +134,23 @@ class JevClient:
             if response.status_code in {429, 529, 503} and attempt < 2:
                 time.sleep(0.4 * 2**attempt)
                 continue
+            if response.status_code in {503, 529}:
+                from dino_jev.heuristic import heuristic_answers
+
+                return (
+                    heuristic_answers(body["state"]),
+                    round((time.perf_counter() - started) * 1000),
+                    {"fallback": True, "http_status": response.status_code},
+                )
             if response.is_error:
                 raise RuntimeError(
                     f"TypeSafe returned HTTP {response.status_code}; no action executed."
                 )
             payload = response.json()
             answers = validate_answers(payload.get("answers") or {}, body["questions"])
-            return answers, round((time.perf_counter() - started) * 1000)
+            usage_raw = payload.get("usage")
+            usage = dict(usage_raw) if isinstance(usage_raw, dict) else None
+            return answers, round((time.perf_counter() - started) * 1000), usage
         raise RuntimeError(f"TypeSafe unavailable; no action executed ({last_error})")
 
 
@@ -151,5 +161,5 @@ class FixtureClient:
         self.answers = answers
         self.latency_ms = latency_ms
 
-    def decide(self, body: dict[str, Any]) -> tuple[dict[str, Any], float]:
-        return validate_answers(self.answers, body["questions"]), self.latency_ms
+    def decide(self, body: dict[str, Any]) -> tuple[dict[str, Any], float, dict[str, Any] | None]:
+        return validate_answers(self.answers, body["questions"]), self.latency_ms, None

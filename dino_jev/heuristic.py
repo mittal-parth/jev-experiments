@@ -63,7 +63,9 @@ def heuristic_answers(state: dict[str, Any]) -> dict[str, Any]:
     obstacle = nearest if isinstance(nearest, dict) else None
     gap = float(obstacle["gap_px"]) if obstacle else 10_000.0
     jumping = bool(dino.get("jumping"))
-    action = decide_action(state)
+    timing = state.get("timing") if isinstance(state.get("timing"), dict) else {}
+    lead = int(timing.get("lead_frames") or 8)
+    action = decide_action(state, lead_frames=lead)
     close = action in {"jump", "duck"}
     very_close = bool(obstacle) and gap < 50.0
 
@@ -95,5 +97,5 @@ def heuristic_answers(state: dict[str, Any]) -> dict[str, Any]:
 class HeuristicClient:
     provider = "heuristic"
 
-    def decide(self, body: dict[str, Any]) -> tuple[dict[str, Any], float]:
-        return heuristic_answers(body["state"]), 0.4
+    def decide(self, body: dict[str, Any]) -> tuple[dict[str, Any], float, dict[str, Any] | None]:
+        return heuristic_answers(body["state"]), 0.4, None
