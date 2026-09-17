@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from playwright.sync_api import Error, sync_playwright
@@ -12,6 +13,7 @@ from dino_jev.questions import GOAL
 DINO_URL = "chrome://dino/"
 KEY_JUMP = 32
 KEY_DUCK = 40
+BOT_JS = (Path(__file__).parent / "static" / "bot.js").read_text()
 
 SNAPSHOT_JS = """(cap) => {
   if (typeof Runner === "undefined" || typeof Runner.getInstance !== "function") {
@@ -26,9 +28,6 @@ SNAPSHOT_JS = """(cap) => {
     if (inst.currentSpeed > cap) inst.setSpeed(cap);
   }
   const trex = inst.tRex;
-  if (trex && !inst.playingIntro && trex.config && trex.xPos !== trex.config.startXPos) {
-    trex.xPos = trex.config.startXPos;
-  }
   const horizon = inst.horizon;
   const obstacles = (horizon && horizon.obstacles) || [];
   const width = trex && trex.ducking ? trex.config.widthDuck : trex.config.width;
@@ -87,37 +86,10 @@ SNAPSHOT_JS = """(cap) => {
 }"""
 
 HUD_JS = """(payload) => {
-  let el = document.getElementById("dino-jev-hud");
-  if (!el) {
-    el = document.createElement("div");
-    el.id = "dino-jev-hud";
-    el.style.cssText = [
-      "position:fixed",
-      "top:16px",
-      "left:16px",
-      "z-index:99999",
-      "font:16px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace",
-      "background:rgba(7,9,13,0.86)",
-      "color:#e8edf5",
-      "padding:12px 14px",
-      "border-radius:12px",
-      "border:1px solid #243044",
-      "max-width:420px",
-      "pointer-events:none",
-    ].join(";");
-    document.documentElement.appendChild(el);
-  }
-  const provider = payload.provider || "unknown";
-  const color = provider === "jev" ? "#3ee0c5" : "#ff6a00";
-  const nearest = payload.nearest;
-  const gap = nearest ? nearest.gap_px + "px " + nearest.kind + "/" + nearest.clearance : "clear";
-  el.innerHTML = [
-    '<div style="letter-spacing:0.12em;text-transform:uppercase;font-size:10px;color:#8b97ab">Dino-Jev</div>',
-    '<div><span style="display:inline-block;padding:1px 8px;border-radius:999px;background:' + color + "22;color:" + color + '">' + provider + "</span> " + (payload.action || "run") + "</div>",
-    "<div>score <b>" + (payload.score ?? 0) + "</b>  speed " + (payload.speed ?? 0) + "</div>",
-    "<div>gap " + gap + "</div>",
-    "<div>latency " + (payload.latency_ms ?? 0) + "ms  jump " + (payload.jump_p ?? 0) + " duck " + (payload.duck_p ?? 0) + "</div>",
-  ].join("");
+  if (!window.__dinoJev) return false;
+  window.__dinoJev.provider = payload.provider || window.__dinoJev.provider;
+  window.__dinoJev.action = payload.action || window.__dinoJev.action;
+  return true;
 }"""
 
 START_JS = """() => {
@@ -297,12 +269,14 @@ class ChromeDino:
         chrome_channel: str = "chrome",
         fullscreen: bool = True,
         window_size: tuple[int, int] | None = None,
+        in_page_control: bool = True,
     ) -> None:
         self.headed = headed
         self.speed_cap = speed_cap
         self.chrome_channel = chrome_channel
         self.fullscreen = fullscreen and headed
         self.window_size = window_size or (1920, 1200)
+        self.in_page_control = in_page_control
         self.last_intent: Intent | None = None
         width, height = self.window_size
         launch_args = [
@@ -332,7 +306,6 @@ class ChromeDino:
         self._cdp = self._page.context.new_cdp_session(self._page)
         self._duck_held = False
         self._last_state: dict[str, Any] | None = None
-        self._hud_ticks = 0
         self._open_dino()
 
     def _open_dino(self) -> None:
@@ -347,6 +320,8 @@ class ChromeDino:
             timeout=8000,
         )
         self._page.evaluate(PATCH_DT_JS)
+        self._page.evaluate(BOT_JS)
+        self._set_bot_control(self.in_page_control, "heuristic")
         self._page.evaluate(PREP_PAGE_JS)
         self._enter_fullscreen()
         self._page.evaluate(ARCADE_JS)
@@ -376,7 +351,22 @@ class ChromeDino:
         except Exception:
             pass
 
-    def _key(self, key_code: int, down: bool) -> None:
+    def _set_bot_control(self, enabled: bool, provider: str) -> None:
+        self.in_page_control = enabled
+        self._page.evaluate(BOT_JS)
+        self._page.evaluate(
+            """({enabled, provider}) => {
+              const jev = window.__dinoJev;
+              if (!jev) return false;
+              jev.enabled = !!enabled;
+              jev.provider = provider;
+              return true;
+            }""",
+            {"enabled": enabled, "provider": provider},
+        )
+
+    def set_control(self, policy: str) -> None:
+        self._set_bot_control(policy == "heuristic", policy)
         name = " " if key_code == KEY_JUMP else "ArrowDown"
         code = "Space" if key_code == KEY_JUMP else "ArrowDown"
         payload = {
@@ -438,6 +428,8 @@ class ChromeDino:
             self._page.evaluate(CAP_SPEED_JS, self.speed_cap)
         self._page.evaluate(ARCADE_JS)
         self._page.evaluate(RESUME_JS)
+        if self.in_page_control:
+            self._set_bot_control(True, "heuristic")
 
     def restart(self) -> None:
         self._set_duck(False)
@@ -451,6 +443,8 @@ class ChromeDino:
             self._page.evaluate(CAP_SPEED_JS, self.speed_cap)
         self._page.evaluate(ARCADE_JS)
         self._page.evaluate(RESUME_JS)
+        if self.in_page_control:
+            self._set_bot_control(True, "heuristic")
 
     def close(self) -> None:
         self._set_duck(False)
@@ -499,33 +493,22 @@ class ChromeDino:
 
     def apply(self, intent: Intent) -> None:
         self.last_intent = intent
+        if self.in_page_control and intent.provider == "heuristic":
+            return
         action = "run"
         if intent.jump:
             action = "jump"
         elif intent.duck:
             action = "duck"
         self._page.evaluate(APPLY_JS, action)
+        self._page.evaluate(
+            HUD_JS,
+            {"provider": intent.provider, "action": action},
+        )
         self._duck_held = action == "duck"
-        self._hud_ticks += 1
-        if self._last_state is not None and (action != "run" or self._hud_ticks % 5 == 0):
-            self._paint_hud(self._last_state, intent)
-
-    def _paint_hud(self, state: dict[str, Any], intent: Intent) -> None:
-        nearest = state.get("nearest_obstacle")
-        payload = {
-            "provider": intent.provider,
-            "action": intent.action,
-            "score": (state.get("run") or {}).get("score"),
-            "speed": (state.get("run") or {}).get("speed"),
-            "latency_ms": intent.latency_ms,
-            "jump_p": round(float(intent.nouls.get("jump_now") or 0), 2),
-            "duck_p": round(float(intent.nouls.get("duck_now") or 0), 2),
-            "nearest": nearest,
-        }
-        self._page.evaluate(HUD_JS, payload)
 
     def screenshot_png(self) -> bytes | None:
-        return self._page.screenshot(type="png")
+        return None
 
     def hud_note(self, text: str) -> None:
-        self._page.evaluate(HUD_JS, {"provider": "idle", "action": text, "score": 0, "speed": 0})
+        self._page.evaluate(HUD_JS, {"provider": "idle", "action": text})

@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import time
 
-from dino_jev.loop import RunLoop, default_policy, make_client, make_session
+from dino_jev.loop import HEURISTIC_CHROME_DT, RunLoop, default_policy, make_client, make_session
 from dino_jev.probe import probe_dino
 from dino_jev.server import DEFAULT_PORT, serve
 
@@ -66,9 +66,13 @@ def main() -> None:
                 "headed": not args.headless,
                 "speed_cap": args.speed_cap,
                 "fullscreen": not args.windowed and not args.headless,
+                "in_page_control": policy == "heuristic",
             }
         session = make_session(args.backend, **session_kwargs)
-        loop = RunLoop(session, make_client(policy))
+        loop_kwargs: dict = {}
+        if policy == "heuristic" and args.backend == "chrome":
+            loop_kwargs["dt"] = HEURISTIC_CHROME_DT
+        loop = RunLoop(session, make_client(policy), **loop_kwargs)
         started = time.perf_counter()
         try:
             session.start_run()

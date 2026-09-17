@@ -40,12 +40,13 @@ python -m dino_jev play --policy jev --seconds 20
 python -m dino_jev serve
 ```
 
-The command launches Chromium itself on `chrome://dino/` in fullscreen arcade mode. You do not open a separate dino tab. Pass `--windowed` if you want a normal window. Open http://127.0.0.1:8766 for the inspector (a view; Jev never sees those pixels).
+The command launches Chromium itself on `chrome://dino/` in fullscreen arcade mode. You do not open a separate dino tab. The HUD and the jumper live on that internat page (60fps `Runner` boxes). The inspector at http://127.0.0.1:8766 is a decision log only — it does not screenshot the game.
 
-- Without a key the loop uses `heuristic` (distance-threshold bot, clearly labeled).
+- Without a key the loop uses `heuristic` (in-page collision bot, clearly labeled).
 - With `JEV_API_KEY` or `TYPESAFE_API_KEY` set, it defaults to **jev**.
 - `--speed-cap 9` (default) keeps `maxSpeed` just above pterodactyl spawn (`8.5`) so Jev's ~80ms tick can still commit. `--speed-cap none` is full internat acceleration.
 - Internat pauses on window blur and on resize. Dino-Jev patches those so the runner keeps going while the inspector or another window is focused.
+- Pass `--windowed` for a normal window.
 
 # Krunker-Jev
 

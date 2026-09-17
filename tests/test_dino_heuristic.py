@@ -3,6 +3,21 @@ from dino_jev.policy import compose_intent, request_body
 
 
 def _cactus(gap_px=80, tti=0.22, width=17):
+    dino_x = 50
+    dino_w = 44
+    x = dino_x + dino_w + gap_px
+    obstacle = {
+        "id": "o0",
+        "kind": "cactus",
+        "type": "cactusSmall",
+        "x": x,
+        "y": 105,
+        "width": width,
+        "height": 35,
+        "gap_px": gap_px,
+        "time_to_impact_s": tti,
+        "clearance": "ground",
+    }
     return {
         "goal": "survive",
         "run": {
@@ -15,27 +30,16 @@ def _cactus(gap_px=80, tti=0.22, width=17):
             "speed_cap": 9.0,
         },
         "dino": {
-            "x": 50,
+            "x": dino_x,
             "y": 93,
             "ground_y": 93,
-            "width": 44,
+            "width": dino_w,
             "height": 47,
             "jumping": False,
             "ducking": False,
         },
-        "nearest_obstacle": {
-            "id": "o0",
-            "kind": "cactus",
-            "type": "cactusSmall",
-            "x": 140,
-            "y": 105,
-            "width": width,
-            "height": 35,
-            "gap_px": gap_px,
-            "time_to_impact_s": tti,
-            "clearance": "ground",
-        },
-        "obstacles": [],
+        "nearest_obstacle": obstacle,
+        "obstacles": [obstacle],
         "last_action": "run",
     }
 
@@ -49,7 +53,7 @@ def test_heuristic_runs_when_path_is_clear():
 
 
 def test_heuristic_jumps_close_cactus():
-    state = _cactus()
+    state = _cactus(gap_px=40, tti=0.11)
     answers = heuristic_answers(state)
     intent = compose_intent(answers, state, provider="heuristic", latency_ms=0.4)
     assert answers["action"]["choice"] == "jump"
@@ -58,7 +62,7 @@ def test_heuristic_jumps_close_cactus():
 
 def test_heuristic_ducks_mid_bird():
     state = _cactus()
-    state["nearest_obstacle"] = {
+    bird = {
         "id": "o0",
         "kind": "pterodactyl",
         "type": "pterodactyl",
@@ -70,6 +74,8 @@ def test_heuristic_ducks_mid_bird():
         "time_to_impact_s": 0.1,
         "clearance": "mid",
     }
+    state["nearest_obstacle"] = bird
+    state["obstacles"] = [bird]
     answers = heuristic_answers(state)
     intent = compose_intent(answers, state, provider="heuristic", latency_ms=0.4)
     assert answers["action"]["choice"] == "duck"

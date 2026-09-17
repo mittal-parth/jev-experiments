@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from dino_jev.client import validate_answers
-from dino_jev.policy import obstacle_clearance
+from dino_jev.physics import decide_action
 from dino_jev.questions import build_questions
 
 URGENCY_LEGEND = {
@@ -57,72 +57,28 @@ def _score(value: float) -> dict[str, Any]:
     }
 
 
-def _should_commit(state: dict[str, Any], obstacle: dict[str, Any]) -> bool:
-    run = state.get("run") or {}
-    dino = state.get("dino") or {}
-    speed = float(run.get("speed") or 6.0)
-    gap = float(obstacle.get("gap_px") or 0.0)
-    width = float(obstacle.get("width") or 17.0)
-    dino_w = float(dino.get("width") or 44.0)
-    tti = obstacle.get("time_to_impact_s")
-    px_per_sec = speed * 60.0
-    if isinstance(tti, (int, float)) and tti > 0 and gap > 0:
-        px_per_sec = gap / tti
-    # Jump so the peak is over the cactus and the landing is past its far edge.
-    min_gap = px_per_sec * 0.15
-    max_gap = px_per_sec * 0.50 - dino_w - width - 8.0
-    if max_gap < min_gap + 16:
-        max_gap = min_gap + 36
-    if min_gap < gap < max_gap:
-        return True
-    return bool(isinstance(tti, (int, float)) and 0.16 <= tti <= 0.30 and gap < max_gap + 24)
-
-
-def _should_duck(state: dict[str, Any], obstacle: dict[str, Any]) -> bool:
-    run = state.get("run") or {}
-    speed = float(run.get("speed") or 6.0)
-    gap = float(obstacle.get("gap_px") or 0.0)
-    tti = obstacle.get("time_to_impact_s")
-    window = speed * 16.0 + 40.0
-    if 12.0 < gap < window:
-        return True
-    return bool(isinstance(tti, (int, float)) and 0.08 <= tti <= 0.40)
-
-
 def heuristic_answers(state: dict[str, Any]) -> dict[str, Any]:
-    run = state.get("run") or {}
     dino = state.get("dino") or {}
     nearest = state.get("nearest_obstacle")
     obstacle = nearest if isinstance(nearest, dict) else None
-    clearance = obstacle_clearance(obstacle)
     gap = float(obstacle["gap_px"]) if obstacle else 10_000.0
     jumping = bool(dino.get("jumping"))
-    crashed = bool(run.get("crashed"))
-    close = bool(obstacle) and (
-        _should_duck(state, obstacle) if clearance == "mid" else _should_commit(state, obstacle)
-    )
+    action = decide_action(state)
+    close = action in {"jump", "duck"}
     very_close = bool(obstacle) and gap < 50.0
 
-    if crashed or jumping or not close:
-        action = "run"
-        jump = 0.08
-        duck = 0.05
-        urgency = 0.15 if not obstacle else 0.45
-    elif clearance == "mid":
-        action = "duck"
+    if action == "duck":
         jump = 0.08
         duck = 0.9
         urgency = 1.35 if very_close else 1.05
-    elif clearance in {"ground", "low"}:
-        action = "jump"
+    elif action == "jump":
         jump = 0.92
         duck = 0.06
         urgency = 1.4 if very_close else 1.1
     else:
-        action = "run"
-        jump = 0.06
-        duck = 0.08
-        urgency = 0.35
+        jump = 0.08
+        duck = 0.05
+        urgency = 0.15 if not obstacle else 0.45
 
     if jumping:
         urgency = max(urgency, 1.0)
