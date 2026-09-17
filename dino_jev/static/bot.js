@@ -164,10 +164,32 @@
     jev.action = action;
   }
 
+  function bar(label, value, win, color) {
+    const p = Math.max(0, Math.min(100, Math.round((Number(value) || 0) * 100)));
+    return (
+      '<div style="display:grid;grid-template-columns:78px 1fr 34px;gap:6px;align-items:center;font-size:12px;margin:2px 0">' +
+      "<span>" +
+      label +
+      "</span>" +
+      '<span style="height:7px;background:#1b2433;border-radius:99px;overflow:hidden"><i style="display:block;height:100%;width:' +
+      p +
+      "%;background:" +
+      (win ? "#ff6a00" : color) +
+      '"></i></span>' +
+      "<span>" +
+      p +
+      "</span></div>"
+    );
+  }
+
   function paintHud(inst) {
     const now = performance.now();
-    if (now - jev._hudAt < 80 && jev._el) return;
+    const seq = jev._replySeq || 0;
+    const prevSeq = jev._paintedReply || 0;
+    if (now - jev._hudAt < 50 && jev._el && prevSeq === seq) return;
+    if (prevSeq !== seq) jev._flashUntil = now + 240;
     jev._hudAt = now;
+    jev._paintedReply = seq;
     let el = jev._el || document.getElementById("dino-jev-hud");
     if (!el) {
       el = document.createElement("div");
@@ -177,13 +199,13 @@
         "top:16px",
         "left:16px",
         "z-index:99999",
-        "font:15px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace",
-        "background:rgba(7,9,13,0.88)",
+        "font:14px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace",
+        "background:rgba(7,9,13,0.9)",
         "color:#e8edf5",
         "padding:12px 14px",
         "border-radius:12px",
         "border:1px solid #243044",
-        "max-width:440px",
+        "max-width:480px",
         "pointer-events:none",
       ].join(";");
       document.documentElement.appendChild(el);
@@ -191,6 +213,7 @@
     }
     const provider = jev.provider || "heuristic";
     const color = provider === "jev" ? "#3ee0c5" : "#ff6a00";
+    el.style.borderColor = jev._flashUntil && now < jev._flashUntil ? color : "#243044";
     const trex = inst && inst.tRex;
     const nearest = inst ? packObstacles(inst)[0] : null;
     const width = trex ? (trex.ducking ? trex.config.widthDuck : trex.config.width) : DINO_W;
@@ -205,25 +228,59 @@
     jev.speed = inst ? inst.currentSpeed : 0;
     jev.gap = gap;
     const gapText = nearest ? gap + "px " + nearest.kind + "/" + clearance(nearest) : "clear";
-    el.innerHTML = [
-      '<div style="letter-spacing:0.12em;text-transform:uppercase;font-size:10px;color:#8b97ab">Dino-Jev · same window · no pixels</div>',
+    const reply = jev.reply;
+    const asked = reply && reply.asked ? reply.asked : jev.action || "run";
+    const exec = jev.action || (reply && reply.action) || "run";
+    const gated = !!(reply && reply.gated);
+    const latency = reply && reply.latency_ms != null ? Math.round(reply.latency_ms) + "ms" : "—";
+    const conf = reply && reply.confidence != null ? Math.round(reply.confidence * 100) + "%" : "—";
+    const lines = [
+      '<div style="letter-spacing:0.12em;text-transform:uppercase;font-size:10px;color:#8b97ab">Dino-Jev · live TypeSafe · no pixels</div>',
       '<div><span style="display:inline-block;padding:1px 8px;border-radius:999px;background:' +
         color +
         "22;color:" +
         color +
         '">' +
         provider +
-        "</span> " +
-        (jev.action || "run") +
+        "</span> ask <b>" +
+        asked +
+        "</b> · do <b>" +
+        exec +
+        "</b>" +
+        (gated ? ' <span style="color:#ff6a00">gated</span>' : "") +
+        "  " +
+        latency +
+        "  #" +
+        seq +
         "</div>",
-      "<div>score <b>" + score + "</b>  speed " + (inst ? inst.currentSpeed.toFixed(2) : "0") + "</div>",
-      "<div>gap " + gapText + "</div>",
-      "<div>control " +
-        (jev.enabled ? "internat 60fps boxes" : "python tick") +
-        "  lead " +
-        ((jev.config && jev.config.leadFrames) || LEAD_FRAMES) +
+      "<div>score <b>" +
+        score +
+        "</b>  speed " +
+        (inst ? inst.currentSpeed.toFixed(2) : "0") +
+        "  gap " +
+        gapText +
         "</div>",
-    ].join("");
+    ];
+    if (reply && reply.note) {
+      lines.push('<div style="color:#c5d0e0">' + reply.note + "</div>");
+    }
+    if (reply && (reply.run_p != null || reply.jump_p != null || reply.duck_p != null)) {
+      lines.push(
+        bar("run", reply.run_p, asked === "run", color),
+        bar("jump", reply.jump_p, asked === "jump", color),
+        bar("duck", reply.duck_p, asked === "duck", color),
+        bar("jump_now", reply.jump_now, exec === "jump", color),
+        bar("duck_now", reply.duck_now, exec === "duck", color),
+        "<div style='font-size:12px;color:#c5d0e0'>urgency " +
+          (reply.urgency ?? "—") +
+          "  conf " +
+          conf +
+          "</div>"
+      );
+    } else if (!reply || reply.note) {
+      lines.push("<div style='color:#8b97ab'>waiting for " + provider + "…</div>");
+    }
+    el.innerHTML = lines.join("");
   }
 
   jev.tick = function tick(inst) {

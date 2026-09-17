@@ -48,9 +48,10 @@ function render(snapshot) {
     policyEl.value = snapshot.policy;
   }
   const action = intent.action || "run";
+  const asked = intent.asked || action;
   const nouls = intent.nouls || {};
   intentEl.innerHTML = `
-    <p>action <b>${action}</b> · jump ${intent.jump ? "yes" : "no"} · duck ${intent.duck ? "yes" : "no"}</p>
+    <p>ask <b>${asked}</b> · do <b>${action}</b>${intent.gated ? " · gated" : ""} · jump ${intent.jump ? "yes" : "no"} · duck ${intent.duck ? "yes" : "no"}</p>
     <p>urgency <b>${(intent.urgency ?? 0).toFixed(2)}</b> · ${intent.latency_ms ?? 0} ms</p>
   `;
   const actionProbs = (intent.probabilities && intent.probabilities.action) || {};

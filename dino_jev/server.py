@@ -59,6 +59,7 @@ class DinoServer:
             fullscreen=self.fullscreen,
             in_page_control=self.policy_name == "heuristic",
             lead_frames=self.lead_frames,
+            provider=self.policy_name,
         )
 
     def snapshot(self) -> dict[str, Any]:

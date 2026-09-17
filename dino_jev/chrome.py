@@ -86,9 +86,18 @@ SNAPSHOT_JS = """(cap) => {
 }"""
 
 HUD_JS = """(payload) => {
-  if (!window.__dinoJev) return false;
-  window.__dinoJev.provider = payload.provider || window.__dinoJev.provider;
-  window.__dinoJev.action = payload.action || window.__dinoJev.action;
+  const jev = window.__dinoJev;
+  if (!jev) return false;
+  jev.provider = (payload && payload.provider) || jev.provider;
+  if (!payload || payload.set_action !== false) {
+    if (payload && payload.action) jev.action = payload.action;
+  }
+  jev.reply = payload;
+  jev._replySeq = (jev._replySeq || 0) + 1;
+  if (typeof jev.paintHud === "function") {
+    const inst = typeof Runner !== "undefined" && Runner.getInstance && Runner.getInstance();
+    jev.paintHud(inst);
+  }
   return true;
 }"""
 
@@ -160,8 +169,17 @@ PATCH_DT_JS = """() => {
   return true;
 }"""
 
-APPLY_JS = """(action) => {
+APPLY_JS = """(payload) => {
   const inst = Runner.getInstance();
+  const action = payload && payload.action;
+  const jev = window.__dinoJev;
+  if (jev) {
+    jev.provider = (payload && payload.provider) || jev.provider;
+    if (!payload || payload.set_action !== false) jev.action = action;
+    jev.reply = payload;
+    jev._replySeq = (jev._replySeq || 0) + 1;
+    if (typeof jev.paintHud === "function") jev.paintHud(inst);
+  }
   if (!inst || !inst.tRex) return { ok: false };
   const t = inst.tRex;
   if (inst.crashed || !inst.playing || inst.playingIntro) {
@@ -276,6 +294,7 @@ class ChromeDino:
         window_size: tuple[int, int] | None = None,
         in_page_control: bool = True,
         lead_frames: int = 8,
+        provider: str | None = None,
     ) -> None:
         self.headed = headed
         self.speed_cap = speed_cap
@@ -284,6 +303,7 @@ class ChromeDino:
         self.window_size = window_size or (1920, 1200)
         self.in_page_control = in_page_control
         self.lead_frames = lead_frames
+        self.provider = provider or ("heuristic" if in_page_control else "jev")
         self.last_intent: Intent | None = None
         width, height = self.window_size
         launch_args = [
@@ -328,7 +348,7 @@ class ChromeDino:
         )
         self._page.evaluate(PATCH_DT_JS)
         self._page.evaluate(BOT_JS)
-        self._set_bot_control(self.in_page_control, "heuristic", self.lead_frames)
+        self._set_bot_control(self.in_page_control, self.provider, self.lead_frames)
         self._page.evaluate(PREP_PAGE_JS)
         self._enter_fullscreen()
         self._page.evaluate(ARCADE_JS)
@@ -360,6 +380,7 @@ class ChromeDino:
 
     def _set_bot_control(self, enabled: bool, provider: str, lead_frames: int | None = None) -> None:
         self.in_page_control = enabled
+        self.provider = provider
         if lead_frames is not None:
             self.lead_frames = lead_frames
         self._page.evaluate(BOT_JS)
@@ -445,8 +466,7 @@ class ChromeDino:
             self._page.evaluate(CAP_SPEED_JS, self.speed_cap)
         self._page.evaluate(ARCADE_JS)
         self._page.evaluate(RESUME_JS)
-        if self.in_page_control:
-            self._set_bot_control(True, "heuristic", self.lead_frames)
+        self._set_bot_control(self.in_page_control, self.provider, self.lead_frames)
 
     def restart(self) -> None:
         self._set_duck(False)
@@ -460,8 +480,7 @@ class ChromeDino:
             self._page.evaluate(CAP_SPEED_JS, self.speed_cap)
         self._page.evaluate(ARCADE_JS)
         self._page.evaluate(RESUME_JS)
-        if self.in_page_control:
-            self._set_bot_control(True, "heuristic", self.lead_frames)
+        self._set_bot_control(self.in_page_control, self.provider, self.lead_frames)
 
     def close(self) -> None:
         self._set_duck(False)
@@ -510,22 +529,26 @@ class ChromeDino:
 
     def apply(self, intent: Intent) -> None:
         self.last_intent = intent
-        if self.in_page_control and intent.provider == "heuristic":
+        payload = intent.hud_payload()
+        in_page = self.in_page_control and intent.provider == "heuristic"
+        payload["set_action"] = not in_page
+        if in_page:
+            self._page.evaluate(HUD_JS, payload)
             return
-        action = "run"
-        if intent.jump:
-            action = "jump"
-        elif intent.duck:
-            action = "duck"
-        self._page.evaluate(APPLY_JS, action)
-        self._page.evaluate(
-            HUD_JS,
-            {"provider": intent.provider, "action": action},
-        )
-        self._duck_held = action == "duck"
+        self._page.evaluate(APPLY_JS, payload)
+        self._duck_held = payload["action"] == "duck"
 
     def screenshot_png(self) -> bytes | None:
         return None
 
     def hud_note(self, text: str) -> None:
-        self._page.evaluate(HUD_JS, {"provider": "idle", "action": text})
+        self._page.evaluate(
+            HUD_JS,
+            {
+                "provider": self.provider,
+                "action": "run",
+                "asked": text,
+                "note": text,
+                "set_action": False,
+            },
+        )

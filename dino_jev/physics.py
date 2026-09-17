@@ -20,7 +20,7 @@ DINO_H = 47.0
 DINO_DUCK_W = 59.0
 DINO_DUCK_H = 25.0
 GROUND_Y = 93.0
-LEAD_FRAMES = 8
+LEAD_FRAMES = 8  # internat frames before impact; lower = later jump (clusters)
 STAND_HORIZON = 55
 JUMP_HORIZON = 80
 

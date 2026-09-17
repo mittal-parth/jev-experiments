@@ -80,6 +80,7 @@ def main() -> None:
                 "fullscreen": not args.windowed and not args.headless,
                 "in_page_control": policy == "heuristic",
                 "lead_frames": args.lead_frames,
+                "provider": policy,
             }
         session = make_session(args.backend, **session_kwargs)
         loop_kwargs: dict = {}
