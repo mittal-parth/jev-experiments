@@ -24,12 +24,14 @@ class DinoServer:
         headed: bool = True,
         speed_cap: float | None = 9.0,
         auto_restart: bool = True,
+        fullscreen: bool = True,
     ) -> None:
         self.policy_name = policy or default_policy()
         self.backend = backend
         self.headed = headed
         self.speed_cap = speed_cap
         self.auto_restart = auto_restart
+        self.fullscreen = fullscreen and headed
         self.lock = threading.Lock()
         self.session = self._new_session()
         self.loop = RunLoop(self.session, make_client(self.policy_name))
@@ -47,7 +49,12 @@ class DinoServer:
     def _new_session(self):
         if self.backend == "fake":
             return make_session("fake")
-        return make_session("chrome", headed=self.headed, speed_cap=self.speed_cap)
+        return make_session(
+            "chrome",
+            headed=self.headed,
+            speed_cap=self.speed_cap,
+            fullscreen=self.fullscreen,
+        )
 
     def snapshot(self) -> dict[str, Any]:
         with self.lock:
@@ -257,12 +264,14 @@ def serve(
     backend: str = "chrome",
     headed: bool = True,
     speed_cap: float | None = 9.0,
+    fullscreen: bool = True,
 ) -> None:
     arena = DinoServer(
         policy=policy,
         backend=backend,
         headed=headed,
         speed_cap=speed_cap,
+        fullscreen=fullscreen,
     )
     server = ThreadingHTTPServer((host, port), make_handler(arena))
     threading.Thread(target=server.serve_forever, daemon=True).start()

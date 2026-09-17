@@ -42,6 +42,7 @@ def main() -> None:
     play.add_argument("--policy", choices=("heuristic", "jev"), default=None)
     play.add_argument("--backend", choices=("chrome", "fake"), default="chrome")
     play.add_argument("--headless", action="store_true")
+    play.add_argument("--windowed", action="store_true", help="Do not fullscreen the Chrome window")
     play.add_argument("--speed-cap", type=_speed_cap, default=9.0)
     play.add_argument("--no-stop-on-crash", action="store_true")
 
@@ -51,6 +52,7 @@ def main() -> None:
     serve_cmd.add_argument("--policy", choices=("heuristic", "jev"), default=None)
     serve_cmd.add_argument("--backend", choices=("chrome", "fake"), default="chrome")
     serve_cmd.add_argument("--headless", action="store_true")
+    serve_cmd.add_argument("--windowed", action="store_true", help="Do not fullscreen the Chrome window")
     serve_cmd.add_argument("--speed-cap", type=_speed_cap, default=9.0)
 
     sub.add_parser("probe-dino", help="Confirm chrome://dino/ exposes Runner.getInstance()")
@@ -63,6 +65,7 @@ def main() -> None:
             session_kwargs = {
                 "headed": not args.headless,
                 "speed_cap": args.speed_cap,
+                "fullscreen": not args.windowed and not args.headless,
             }
         session = make_session(args.backend, **session_kwargs)
         loop = RunLoop(session, make_client(policy))
@@ -76,8 +79,12 @@ def main() -> None:
                     break
                 frame = loop.tick_paced()
                 frames.append(frame)
-                if not args.no_stop_on_crash and (frame.get("run") or {}).get("crashed"):
-                    break
+                if (frame.get("run") or {}).get("crashed"):
+                    if args.no_stop_on_crash:
+                        session.restart()
+                        session.start_run()
+                    else:
+                        break
             last = frames[-1] if frames else loop.snapshot()
             run = last.get("run") or {}
             print(
@@ -106,6 +113,7 @@ def main() -> None:
             backend=args.backend,
             headed=not args.headless,
             speed_cap=args.speed_cap,
+            fullscreen=not args.windowed and not args.headless,
         )
         return
     if args.cmd == "probe-dino":

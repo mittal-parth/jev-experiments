@@ -93,16 +93,16 @@ HUD_JS = """(payload) => {
     el.id = "dino-jev-hud";
     el.style.cssText = [
       "position:fixed",
-      "top:8px",
-      "left:8px",
+      "top:16px",
+      "left:16px",
       "z-index:99999",
-      "font:12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace",
+      "font:16px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace",
       "background:rgba(7,9,13,0.86)",
       "color:#e8edf5",
-      "padding:8px 10px",
-      "border-radius:10px",
+      "padding:12px 14px",
+      "border-radius:12px",
       "border:1px solid #243044",
-      "max-width:360px",
+      "max-width:420px",
       "pointer-events:none",
     ].join(";");
     document.documentElement.appendChild(el);
@@ -192,6 +192,31 @@ CAP_SPEED_JS = """(cap) => {
   return inst.currentSpeed;
 }"""
 
+PREP_PAGE_JS = """() => {
+  if (document.getElementById("dino-jev-prep")) return true;
+  const style = document.createElement("style");
+  style.id = "dino-jev-prep";
+  style.textContent = [
+    "html, body { margin:0 !important; overflow:hidden !important; background:#f7f7f7 !important; height:100% !important; }",
+    "#main-message, .nav-wrapper, .error-code { display:none !important; }",
+    ".icon-offline { display:none !important; }",
+    ".runner-container { z-index:10; }",
+  ].join("\\n");
+  document.documentElement.appendChild(style);
+  return true;
+}"""
+
+ARCADE_JS = """() => {
+  const inst = Runner.getInstance();
+  if (!inst) return false;
+  try {
+    document.body.classList.add("arcade-mode");
+    if (typeof inst.setArcadeMode === "function") inst.setArcadeMode();
+    if (typeof inst.adjustDimensions === "function") inst.adjustDimensions();
+  } catch (err) {}
+  return true;
+}"""
+
 
 def _kind(obstacle: dict[str, Any]) -> str:
     raw = str(obstacle.get("kind") or obstacle.get("type") or "")
@@ -213,25 +238,40 @@ class ChromeDino:
         headed: bool = True,
         speed_cap: float | None = 9.0,
         chrome_channel: str = "chrome",
+        fullscreen: bool = True,
+        window_size: tuple[int, int] | None = None,
     ) -> None:
         self.headed = headed
         self.speed_cap = speed_cap
         self.chrome_channel = chrome_channel
+        self.fullscreen = fullscreen and headed
+        self.window_size = window_size or (1920, 1200)
         self.last_intent: Intent | None = None
+        width, height = self.window_size
+        launch_args = [
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-background-timer-throttling",
+            "--disable-renderer-backgrounding",
+            "--disable-backgrounding-occluded-windows",
+            f"--window-size={width},{height}",
+            "--window-position=0,0",
+        ]
+        if self.fullscreen:
+            launch_args.append("--start-fullscreen")
         self._playwright = sync_playwright().start()
         self._browser = self._playwright.chromium.launch(
             channel=chrome_channel,
             headless=not headed,
-            args=[
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-background-timer-throttling",
-                "--disable-renderer-backgrounding",
-                "--disable-backgrounding-occluded-windows",
-                "--window-size=1000,640",
-            ],
+            args=launch_args,
         )
-        self._page = self._browser.new_page(viewport={"width": 1000, "height": 520})
+        if self.fullscreen:
+            self._context = self._browser.new_context(no_viewport=True)
+        else:
+            self._context = self._browser.new_context(
+                viewport={"width": width, "height": min(height, 800)}
+            )
+        self._page = self._context.new_page()
         self._cdp = self._page.context.new_cdp_session(self._page)
         self._duck_held = False
         self._last_state: dict[str, Any] | None = None
@@ -250,9 +290,33 @@ class ChromeDino:
             timeout=8000,
         )
         self._page.evaluate(PATCH_DT_JS)
+        self._page.evaluate(PREP_PAGE_JS)
+        self._enter_fullscreen()
+        self._page.evaluate(ARCADE_JS)
         try:
             self._page.locator("canvas").first.click(timeout=2000)
         except Error:
+            pass
+
+    def _enter_fullscreen(self) -> None:
+        if not self.fullscreen:
+            return
+        try:
+            window = self._cdp.send("Browser.getWindowForTarget")
+            self._cdp.send(
+                "Browser.setWindowBounds",
+                {"windowId": window["windowId"], "bounds": {"windowState": "fullscreen"}},
+            )
+        except Exception:
+            pass
+        try:
+            self._page.evaluate(
+                """() => {
+                  const root = document.documentElement;
+                  if (root && root.requestFullscreen) root.requestFullscreen().catch(() => {});
+                }"""
+            )
+        except Exception:
             pass
 
     def _key(self, key_code: int, down: bool) -> None:
@@ -315,6 +379,9 @@ class ChromeDino:
                 self._page.evaluate(FORCE_ACTIVATE_JS)
         if self.speed_cap:
             self._page.evaluate(CAP_SPEED_JS, self.speed_cap)
+        self._page.evaluate(PREP_PAGE_JS)
+        self._enter_fullscreen()
+        self._page.evaluate(ARCADE_JS)
 
     def restart(self) -> None:
         self._set_duck(False)
@@ -326,6 +393,9 @@ class ChromeDino:
         )
         if self.speed_cap:
             self._page.evaluate(CAP_SPEED_JS, self.speed_cap)
+        self._page.evaluate(PREP_PAGE_JS)
+        self._enter_fullscreen()
+        self._page.evaluate(ARCADE_JS)
 
     def close(self) -> None:
         self._set_duck(False)

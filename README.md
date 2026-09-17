@@ -35,12 +35,12 @@ source .venv/bin/activate
 pip install -e '.[dev]'
 cp .env.example .env   # or set JEV_API_KEY / TYPESAFE_API_KEY
 python -m dino_jev probe-dino
-python -m dino_jev play --policy heuristic --seconds 20
+python -m dino_jev play --policy heuristic --seconds 50
 python -m dino_jev play --policy jev --seconds 20
 python -m dino_jev serve
 ```
 
-Open http://127.0.0.1:8766 and the Chromium window on `chrome://dino/`.
+The command launches Chromium itself on `chrome://dino/` in fullscreen arcade mode. You do not open a separate dino tab. Pass `--windowed` if you want a normal window. Open http://127.0.0.1:8766 for the inspector (a view; Jev never sees those pixels).
 
 - Without a key the loop uses `heuristic` (distance-threshold bot, clearly labeled).
 - With `JEV_API_KEY` or `TYPESAFE_API_KEY` set, it defaults to **jev**.

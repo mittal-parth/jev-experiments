@@ -2,7 +2,7 @@ from dino_jev.heuristic import HeuristicClient, heuristic_answers
 from dino_jev.policy import compose_intent, request_body
 
 
-def _cactus(gap_px=46):
+def _cactus(gap_px=80, tti=0.22, width=17):
     return {
         "goal": "survive",
         "run": {
@@ -29,10 +29,10 @@ def _cactus(gap_px=46):
             "type": "cactusSmall",
             "x": 140,
             "y": 105,
-            "width": 17,
+            "width": width,
             "height": 35,
             "gap_px": gap_px,
-            "time_to_impact_s": 0.12,
+            "time_to_impact_s": tti,
             "clearance": "ground",
         },
         "obstacles": [],
@@ -74,6 +74,14 @@ def test_heuristic_ducks_mid_bird():
     intent = compose_intent(answers, state, provider="heuristic", latency_ms=0.4)
     assert answers["action"]["choice"] == "duck"
     assert intent.duck is True
+
+
+def test_heuristic_does_not_jump_too_early_on_wide_cactus():
+    state = _cactus(gap_px=200, tti=0.48, width=51)
+    answers = heuristic_answers(state)
+    intent = compose_intent(answers, state, provider="heuristic", latency_ms=0.4)
+    assert answers["action"]["choice"] == "run"
+    assert intent.jump is False
 
 
 def test_heuristic_client_matches_questions():

@@ -59,16 +59,34 @@ def _score(value: float) -> dict[str, Any]:
 
 def _should_commit(state: dict[str, Any], obstacle: dict[str, Any]) -> bool:
     run = state.get("run") or {}
+    dino = state.get("dino") or {}
     speed = float(run.get("speed") or 6.0)
     gap = float(obstacle.get("gap_px") or 0.0)
     width = float(obstacle.get("width") or 17.0)
+    dino_w = float(dino.get("width") or 44.0)
     tti = obstacle.get("time_to_impact_s")
-    window = speed * 13.0 + 45.0 + min(width, 50.0) * 0.25
-    if 25.0 < gap < window:
+    px_per_sec = speed * 60.0
+    if isinstance(tti, (int, float)) and tti > 0 and gap > 0:
+        px_per_sec = gap / tti
+    # Jump so the peak is over the cactus and the landing is past its far edge.
+    min_gap = px_per_sec * 0.17
+    max_gap = px_per_sec * 0.46 - dino_w - width - 8.0
+    if max_gap < min_gap + 16:
+        max_gap = min_gap + 36
+    if min_gap < gap < max_gap:
         return True
-    if isinstance(tti, (int, float)) and 0.16 <= tti <= 0.34:
+    return bool(isinstance(tti, (int, float)) and 0.18 <= tti <= 0.28 and gap < max_gap + 24)
+
+
+def _should_duck(state: dict[str, Any], obstacle: dict[str, Any]) -> bool:
+    run = state.get("run") or {}
+    speed = float(run.get("speed") or 6.0)
+    gap = float(obstacle.get("gap_px") or 0.0)
+    tti = obstacle.get("time_to_impact_s")
+    window = speed * 16.0 + 40.0
+    if 12.0 < gap < window:
         return True
-    return False
+    return bool(isinstance(tti, (int, float)) and 0.08 <= tti <= 0.40)
 
 
 def heuristic_answers(state: dict[str, Any]) -> dict[str, Any]:
@@ -80,7 +98,9 @@ def heuristic_answers(state: dict[str, Any]) -> dict[str, Any]:
     gap = float(obstacle["gap_px"]) if obstacle else 10_000.0
     jumping = bool(dino.get("jumping"))
     crashed = bool(run.get("crashed"))
-    close = bool(obstacle) and _should_commit(state, obstacle)
+    close = bool(obstacle) and (
+        _should_duck(state, obstacle) if clearance == "mid" else _should_commit(state, obstacle)
+    )
     very_close = bool(obstacle) and gap < 50.0
 
     if crashed or jumping or not close:

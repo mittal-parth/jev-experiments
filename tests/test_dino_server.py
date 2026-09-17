@@ -14,3 +14,14 @@ def test_fake_server_start_is_rate_limited():
     assert 1 <= arena.loop.ticks < 20
     assert arena.running is False
     arena.close()
+
+
+def test_fake_server_accepts_fullscreen_flag():
+    arena = DinoServer(
+        policy="heuristic",
+        backend="fake",
+        auto_restart=False,
+        fullscreen=False,
+    )
+    assert arena.fullscreen is False
+    arena.close()
