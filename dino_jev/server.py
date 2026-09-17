@@ -10,7 +10,7 @@ import time
 from typing import Any
 from urllib.parse import urlparse
 
-from dino_jev.loop import RunLoop, default_policy, make_client, make_session
+from dino_jev.loop import HEURISTIC_CHROME_DT, RunLoop, default_policy, make_client, make_session
 
 STATIC_DIR = Path(__file__).parent / "static"
 DEFAULT_PORT = 8766
@@ -24,22 +24,27 @@ class DinoServer:
         headed: bool = True,
         speed_cap: float | None = 9.0,
         auto_restart: bool = True,
+        fullscreen: bool = True,
+        lead_frames: int = 8,
     ) -> None:
         self.policy_name = policy or default_policy()
         self.backend = backend
         self.headed = headed
         self.speed_cap = speed_cap
         self.auto_restart = auto_restart
+        self.fullscreen = fullscreen and headed
+        self.lead_frames = lead_frames
         self.lock = threading.Lock()
         self.session = self._new_session()
-        self.loop = RunLoop(self.session, make_client(self.policy_name))
+        loop_kwargs: dict = {}
+        if self.policy_name == "heuristic" and self.backend == "chrome":
+            loop_kwargs["dt"] = HEURISTIC_CHROME_DT
+        self.loop = RunLoop(self.session, make_client(self.policy_name), **loop_kwargs)
         self.running = False
         self.error: str | None = None
         self.runs = 0
         self.best_score = 0
         self.last_score = 0
-        self._frame_png: bytes | None = None
-        self._frame_at = 0.0
         self._pending: tuple[str, str | None] | None = None
         self._public: dict[str, Any] = {}
         self._publish(self.loop.snapshot())
@@ -47,7 +52,15 @@ class DinoServer:
     def _new_session(self):
         if self.backend == "fake":
             return make_session("fake")
-        return make_session("chrome", headed=self.headed, speed_cap=self.speed_cap)
+        return make_session(
+            "chrome",
+            headed=self.headed,
+            speed_cap=self.speed_cap,
+            fullscreen=self.fullscreen,
+            in_page_control=self.policy_name == "heuristic",
+            lead_frames=self.lead_frames,
+            provider=self.policy_name,
+        )
 
     def snapshot(self) -> dict[str, Any]:
         with self.lock:
@@ -105,7 +118,6 @@ class DinoServer:
             frame = self.loop.tick()
             self.error = None
             self._note_crash(frame)
-            self._maybe_frame()
             self._publish(frame)
             return
         raise ValueError(f"unknown action {action}")
@@ -119,7 +131,12 @@ class DinoServer:
         except Exception:
             self.session.close()
             self.session = self._new_session()
-        self.loop = RunLoop(self.session, make_client(self.policy_name))
+        if hasattr(self.session, "set_control"):
+            self.session.set_control(self.policy_name)
+        loop_kwargs: dict = {}
+        if self.policy_name == "heuristic" and self.backend == "chrome":
+            loop_kwargs["dt"] = HEURISTIC_CHROME_DT
+        self.loop = RunLoop(self.session, make_client(self.policy_name), **loop_kwargs)
         self.error = None
 
     def _note_crash(self, frame: dict[str, Any]) -> None:
@@ -132,13 +149,6 @@ class DinoServer:
                 self.runs += 1
                 self.session.restart()
                 self.session.start_run()
-
-    def _maybe_frame(self) -> None:
-        now = time.monotonic()
-        if now - self._frame_at < 0.45 and self._frame_png:
-            return
-        self._frame_png = self.session.screenshot_png()
-        self._frame_at = now
 
     def pump(self) -> None:
         """Advance queued commands and the run loop on the Playwright thread."""
@@ -161,16 +171,11 @@ class DinoServer:
             frame = self.loop.tick_paced()
             self.error = None
             self._note_crash(frame)
-            self._maybe_frame()
             self._publish(frame)
         except Exception as exc:  # noqa: BLE001
             self.running = False
             self.error = str(exc)
             self._publish(self.loop.snapshot())
-
-    def frame_png(self) -> bytes | None:
-        with self.lock:
-            return self._frame_png
 
     def close(self) -> None:
         self.running = False
@@ -196,11 +201,7 @@ def make_handler(arena: DinoServer) -> type[BaseHTTPRequestHandler]:
                 self._json(arena.snapshot())
                 return
             if path == "/api/frame.png":
-                png = arena.frame_png()
-                if not png:
-                    self._json({"error": "no frame"}, 404)
-                    return
-                self._send(200, png, "image/png")
+                self._json({"error": "no screenshots — watch the Chrome window"}, 404)
                 return
             if path == "/":
                 path = "/index.html"
@@ -257,12 +258,16 @@ def serve(
     backend: str = "chrome",
     headed: bool = True,
     speed_cap: float | None = 9.0,
+    fullscreen: bool = True,
+    lead_frames: int = 8,
 ) -> None:
     arena = DinoServer(
         policy=policy,
         backend=backend,
         headed=headed,
         speed_cap=speed_cap,
+        fullscreen=fullscreen,
+        lead_frames=lead_frames,
     )
     server = ThreadingHTTPServer((host, port), make_handler(arena))
     threading.Thread(target=server.serve_forever, daemon=True).start()

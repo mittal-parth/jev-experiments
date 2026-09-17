@@ -4,7 +4,6 @@ const intentEl = document.getElementById("intent");
 const probsEl = document.getElementById("probs");
 const stateEl = document.getElementById("state");
 const policyEl = document.getElementById("policy");
-const frameEl = document.getElementById("frame");
 
 async function control(action) {
   const response = await fetch("/api/control", {
@@ -49,9 +48,10 @@ function render(snapshot) {
     policyEl.value = snapshot.policy;
   }
   const action = intent.action || "run";
+  const asked = intent.asked || action;
   const nouls = intent.nouls || {};
   intentEl.innerHTML = `
-    <p>action <b>${action}</b> · jump ${intent.jump ? "yes" : "no"} · duck ${intent.duck ? "yes" : "no"}</p>
+    <p>ask <b>${asked}</b> · do <b>${action}</b>${intent.gated ? " · gated" : ""} · jump ${intent.jump ? "yes" : "no"} · duck ${intent.duck ? "yes" : "no"}</p>
     <p>urgency <b>${(intent.urgency ?? 0).toFixed(2)}</b> · ${intent.latency_ms ?? 0} ms</p>
   `;
   const actionProbs = (intent.probabilities && intent.probabilities.action) || {};
@@ -75,7 +75,6 @@ async function poll() {
     const response = await fetch("/api/snapshot");
     const payload = await response.json();
     render(payload);
-    frameEl.src = `/api/frame.png?t=${Date.now()}`;
   } catch (err) {
     statusEl.textContent = "inspector unreachable";
   }

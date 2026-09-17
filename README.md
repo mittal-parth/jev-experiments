@@ -35,16 +35,19 @@ source .venv/bin/activate
 pip install -e '.[dev]'
 cp .env.example .env   # or set JEV_API_KEY / TYPESAFE_API_KEY
 python -m dino_jev probe-dino
-python -m dino_jev play --policy heuristic --seconds 20
+python -m dino_jev play --policy heuristic --seconds 50
 python -m dino_jev play --policy jev --seconds 20
 python -m dino_jev serve
 ```
 
-Open http://127.0.0.1:8766 and the Chromium window on `chrome://dino/`.
+The command launches Chromium itself on `chrome://dino/` in fullscreen arcade mode. You do not open a separate dino tab. Jump/duck run on that internat page (60fps `Runner` boxes). TypeSafe replies overlay the **bottom-left** corner so internat’s own score and the runner stay visible. The inspector at http://127.0.0.1:8766 is a decision log only — it does not screenshot the game.
 
-- Without a key the loop uses `heuristic` (distance-threshold bot, clearly labeled).
+- Without a key the loop uses `heuristic` (in-page collision bot, clearly labeled).
 - With `JEV_API_KEY` or `TYPESAFE_API_KEY` set, it defaults to **jev**.
 - `--speed-cap 9` (default) keeps `maxSpeed` just above pterodactyl spawn (`8.5`) so Jev's ~80ms tick can still commit. `--speed-cap none` is full internat acceleration.
+- `--lead-frames 8` (default) is how many internat frames before a standing collision we jump, if the hop still clears. **Lower** (4–6) jumps later — better on clustered cacti, easier to clip the first one. **Higher** (10–14) jumps earlier — safer on singles, lands on wide clusters. Same constant in [`dino_jev/physics.py`](dino_jev/physics.py) and [`dino_jev/static/bot.js`](dino_jev/static/bot.js). No internat sliders.
+- Internat pauses on window blur and on resize. Dino-Jev patches those so the runner keeps going while the inspector or another window is focused.
+- Pass `--windowed` for a normal window.
 
 # Krunker-Jev
 

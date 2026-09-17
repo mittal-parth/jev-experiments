@@ -11,6 +11,7 @@ from dino_jev.heuristic import HeuristicClient
 from dino_jev.policy import Intent, compose_intent, request_body
 
 DEFAULT_DT = 1 / 30
+HEURISTIC_CHROME_DT = 0.25
 
 
 class DinoSession(Protocol):

@@ -184,3 +184,39 @@ def test_low_confidence_keeps_previous_action():
     )
     assert intent.action == "run"
     assert intent.jump is False
+
+
+def test_intent_hud_payload_exposes_typesafe_heads():
+    intent = compose_intent(
+        fixture_answers(action="jump", jump=0.9, duck=0.1, urgency=1.2),
+        sample_state(),
+        provider="jev",
+        latency_ms=18.4,
+    )
+    payload = intent.hud_payload()
+    dumped = intent.as_dict()
+    assert payload["provider"] == "jev"
+    assert payload["asked"] == "jump"
+    assert payload["action"] == "jump"
+    assert payload["gated"] is False
+    assert payload["jump_p"] > payload["run_p"]
+    assert payload["jump_now"] == 0.9
+    assert payload["duck_now"] == 0.1
+    assert payload["urgency"] == 1.2
+    assert payload["latency_ms"] == 18.4
+    assert dumped["asked"] == "jump"
+    assert dumped["gated"] is False
+
+
+def test_intent_hud_payload_marks_gated_when_policy_overrides():
+    intent = compose_intent(
+        fixture_answers(action="jump", jump=0.99),
+        sample_state(dino={"jumping": True}),
+        provider="jev",
+        latency_ms=12,
+    )
+    payload = intent.hud_payload()
+    assert payload["asked"] == "jump"
+    assert payload["action"] == "run"
+    assert payload["gated"] is True
+    assert intent.as_dict()["gated"] is True

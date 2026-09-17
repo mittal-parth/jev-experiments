@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from dino_jev.client import validate_answers
-from dino_jev.policy import obstacle_clearance
+from dino_jev.physics import decide_action
 from dino_jev.questions import build_questions
 
 URGENCY_LEGEND = {
@@ -57,52 +57,28 @@ def _score(value: float) -> dict[str, Any]:
     }
 
 
-def _should_commit(state: dict[str, Any], obstacle: dict[str, Any]) -> bool:
-    run = state.get("run") or {}
-    speed = float(run.get("speed") or 6.0)
-    gap = float(obstacle.get("gap_px") or 0.0)
-    width = float(obstacle.get("width") or 17.0)
-    tti = obstacle.get("time_to_impact_s")
-    window = speed * 13.0 + 45.0 + min(width, 50.0) * 0.25
-    if 25.0 < gap < window:
-        return True
-    if isinstance(tti, (int, float)) and 0.16 <= tti <= 0.34:
-        return True
-    return False
-
-
 def heuristic_answers(state: dict[str, Any]) -> dict[str, Any]:
-    run = state.get("run") or {}
     dino = state.get("dino") or {}
     nearest = state.get("nearest_obstacle")
     obstacle = nearest if isinstance(nearest, dict) else None
-    clearance = obstacle_clearance(obstacle)
     gap = float(obstacle["gap_px"]) if obstacle else 10_000.0
     jumping = bool(dino.get("jumping"))
-    crashed = bool(run.get("crashed"))
-    close = bool(obstacle) and _should_commit(state, obstacle)
+    action = decide_action(state)
+    close = action in {"jump", "duck"}
     very_close = bool(obstacle) and gap < 50.0
 
-    if crashed or jumping or not close:
-        action = "run"
-        jump = 0.08
-        duck = 0.05
-        urgency = 0.15 if not obstacle else 0.45
-    elif clearance == "mid":
-        action = "duck"
+    if action == "duck":
         jump = 0.08
         duck = 0.9
         urgency = 1.35 if very_close else 1.05
-    elif clearance in {"ground", "low"}:
-        action = "jump"
+    elif action == "jump":
         jump = 0.92
         duck = 0.06
         urgency = 1.4 if very_close else 1.1
     else:
-        action = "run"
-        jump = 0.06
-        duck = 0.08
-        urgency = 0.35
+        jump = 0.08
+        duck = 0.05
+        urgency = 0.15 if not obstacle else 0.45
 
     if jumping:
         urgency = max(urgency, 1.0)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from playwright.sync_api import Error, sync_playwright
@@ -12,6 +13,7 @@ from dino_jev.questions import GOAL
 DINO_URL = "chrome://dino/"
 KEY_JUMP = 32
 KEY_DUCK = 40
+BOT_JS = (Path(__file__).parent / "static" / "bot.js").read_text()
 
 SNAPSHOT_JS = """(cap) => {
   if (typeof Runner === "undefined" || typeof Runner.getInstance !== "function") {
@@ -26,9 +28,6 @@ SNAPSHOT_JS = """(cap) => {
     if (inst.currentSpeed > cap) inst.setSpeed(cap);
   }
   const trex = inst.tRex;
-  if (trex && !inst.playingIntro && trex.config && trex.xPos !== trex.config.startXPos) {
-    trex.xPos = trex.config.startXPos;
-  }
   const horizon = inst.horizon;
   const obstacles = (horizon && horizon.obstacles) || [];
   const width = trex && trex.ducking ? trex.config.widthDuck : trex.config.width;
@@ -87,37 +86,19 @@ SNAPSHOT_JS = """(cap) => {
 }"""
 
 HUD_JS = """(payload) => {
-  let el = document.getElementById("dino-jev-hud");
-  if (!el) {
-    el = document.createElement("div");
-    el.id = "dino-jev-hud";
-    el.style.cssText = [
-      "position:fixed",
-      "top:8px",
-      "left:8px",
-      "z-index:99999",
-      "font:12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace",
-      "background:rgba(7,9,13,0.86)",
-      "color:#e8edf5",
-      "padding:8px 10px",
-      "border-radius:10px",
-      "border:1px solid #243044",
-      "max-width:360px",
-      "pointer-events:none",
-    ].join(";");
-    document.documentElement.appendChild(el);
+  const jev = window.__dinoJev;
+  if (!jev) return false;
+  jev.provider = (payload && payload.provider) || jev.provider;
+  if (!payload || payload.set_action !== false) {
+    if (payload && payload.action) jev.action = payload.action;
   }
-  const provider = payload.provider || "unknown";
-  const color = provider === "jev" ? "#3ee0c5" : "#ff6a00";
-  const nearest = payload.nearest;
-  const gap = nearest ? nearest.gap_px + "px " + nearest.kind + "/" + nearest.clearance : "clear";
-  el.innerHTML = [
-    '<div style="letter-spacing:0.12em;text-transform:uppercase;font-size:10px;color:#8b97ab">Dino-Jev</div>',
-    '<div><span style="display:inline-block;padding:1px 8px;border-radius:999px;background:' + color + "22;color:" + color + '">' + provider + "</span> " + (payload.action || "run") + "</div>",
-    "<div>score <b>" + (payload.score ?? 0) + "</b>  speed " + (payload.speed ?? 0) + "</div>",
-    "<div>gap " + gap + "</div>",
-    "<div>latency " + (payload.latency_ms ?? 0) + "ms  jump " + (payload.jump_p ?? 0) + " duck " + (payload.duck_p ?? 0) + "</div>",
-  ].join("");
+  jev.reply = payload;
+  jev._replySeq = (jev._replySeq || 0) + 1;
+  if (typeof jev.paintHud === "function") {
+    const inst = typeof Runner !== "undefined" && Runner.getInstance && Runner.getInstance();
+    jev.paintHud(inst);
+  }
+  return true;
 }"""
 
 START_JS = """() => {
@@ -148,27 +129,84 @@ FORCE_ACTIVATE_JS = """() => {
   if (inst.tRex.xPos < inst.tRex.config.startXPos) {
     inst.tRex.xPos = inst.tRex.config.startXPos;
   }
+  inst.tRex.xInitialPos = inst.tRex.config.startXPos;
   if (!inst.raqId) inst.update();
   return true;
 }"""
 
 PATCH_DT_JS = """() => {
-  const inst = Runner.getInstance();
+  if (typeof Runner !== "undefined" && Runner.prototype && !Runner.prototype._jevVisPatched) {
+    Runner.prototype.onVisibilityChange = function() {};
+    Runner.prototype._jevVisPatched = true;
+  }
+  const inst = typeof Runner !== "undefined" && typeof Runner.getInstance === "function"
+    ? Runner.getInstance()
+    : null;
   if (!inst || inst._jevDtPatched) return !!inst;
-  const inner = inst.update.bind(inst);
+  inst.onVisibilityChange = function() {};
+  const innerUpdate = inst.update.bind(inst);
   inst.update = function patchedUpdate() {
     const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
     if (this.time && now - this.time > 34) {
       this.time = now - 16.67;
     }
-    return inner();
+    return innerUpdate();
   };
+  if (typeof inst.adjustDimensions === "function") {
+    const innerAdjust = inst.adjustDimensions.bind(inst);
+    inst.adjustDimensions = function patchedAdjust() {
+      const wasPlaying = this.playing && !this.crashed;
+      innerAdjust();
+      const logicalW = 600;
+      const logicalH = (this.dimensions && this.dimensions.height) || 150;
+      const dpr = Math.floor(window.devicePixelRatio) || 1;
+      if (this.dimensions) {
+        this.dimensions.width = logicalW;
+        if ("WIDTH" in this.dimensions) this.dimensions.WIDTH = logicalW;
+      }
+      if (this.canvas) {
+        const bufW = this.canvas.width;
+        if (bufW !== logicalW && bufW !== logicalW * dpr) {
+          this.canvas.width = logicalW;
+          this.canvas.height = logicalH;
+          if (typeof this.updateCanvasScaling === "function") {
+            this.updateCanvasScaling(this.canvas);
+          }
+        }
+        this.canvas.style.width = logicalW + "px";
+        this.canvas.style.height = logicalH + "px";
+      }
+      if (this.containerEl) {
+        this.containerEl.style.width = logicalW + "px";
+        this.containerEl.style.height = logicalH + "px";
+      }
+      if (this.distanceMeter && typeof this.distanceMeter.calcXpos === "function") {
+        this.distanceMeter.calcXpos(logicalW);
+      }
+      if (typeof this.setArcadeMode === "function") this.setArcadeMode();
+      if (wasPlaying && !this.crashed) {
+        this.paused = false;
+        this.setPlayStatus(true);
+        this.time = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+        if (!this.raqId) this.update();
+      }
+    };
+  }
   inst._jevDtPatched = true;
   return true;
 }"""
 
-APPLY_JS = """(action) => {
+APPLY_JS = """(payload) => {
   const inst = Runner.getInstance();
+  const action = payload && payload.action;
+  const jev = window.__dinoJev;
+  if (jev) {
+    jev.provider = (payload && payload.provider) || jev.provider;
+    if (!payload || payload.set_action !== false) jev.action = action;
+    jev.reply = payload;
+    jev._replySeq = (jev._replySeq || 0) + 1;
+    if (typeof jev.paintHud === "function") jev.paintHud(inst);
+  }
   if (!inst || !inst.tRex) return { ok: false };
   const t = inst.tRex;
   if (inst.crashed || !inst.playing || inst.playingIntro) {
@@ -192,6 +230,94 @@ CAP_SPEED_JS = """(cap) => {
   return inst.currentSpeed;
 }"""
 
+PREP_PAGE_JS = """() => {
+  if (document.getElementById("dino-jev-prep")) return true;
+  const style = document.createElement("style");
+  style.id = "dino-jev-prep";
+  style.textContent = [
+    "html, body { margin:0 !important; overflow:hidden !important; background:#f7f7f7 !important; height:100% !important; }",
+    "#main-message, .nav-wrapper, .error-code { display:none !important; }",
+    ".icon-offline { display:none !important; }",
+    ".runner-container { z-index:10; }",
+  ].join("\\n");
+  document.documentElement.appendChild(style);
+  return true;
+}"""
+
+ARCADE_JS = """() => {
+  const inst = Runner.getInstance();
+  if (!inst) return false;
+  if (!document.title.startsWith("chrome://dino/")) {
+    document.title = "chrome://dino/";
+  }
+  try {
+    document.body.classList.add("arcade-mode");
+    if (inst.slowSpeedToggleEl) inst.slowSpeedToggleEl.style.display = "none";
+    if (inst.slowSpeedCheckboxLabel) inst.slowSpeedCheckboxLabel.style.display = "none";
+    const trex = inst.tRex;
+    if (trex && trex.config && !inst.playingIntro && !trex.playingIntro) {
+      trex.xInitialPos = trex.config.startXPos;
+    }
+    const logicalW = 600;
+    const logicalH = (inst.dimensions && (inst.dimensions.height || inst.dimensions.HEIGHT)) || 150;
+    const dpr = Math.floor(window.devicePixelRatio) || 1;
+    if (inst.dimensions) {
+      inst.dimensions.width = logicalW;
+      if ("WIDTH" in inst.dimensions) inst.dimensions.WIDTH = logicalW;
+    }
+    if (inst.canvas) {
+      const bufW = inst.canvas.width;
+      const hidpi = bufW === logicalW * dpr;
+      if (bufW !== logicalW && !hidpi) {
+        inst.canvas.width = logicalW;
+        inst.canvas.height = logicalH;
+        if (typeof inst.updateCanvasScaling === "function") {
+          inst.updateCanvasScaling(inst.canvas);
+        }
+      }
+      inst.canvas.style.width = logicalW + "px";
+      inst.canvas.style.height = logicalH + "px";
+    }
+    const el = inst.containerEl;
+    if (el) {
+      el.style.width = logicalW + "px";
+      el.style.height = logicalH + "px";
+    }
+    if (inst.distanceMeter && typeof inst.distanceMeter.calcXpos === "function") {
+      inst.distanceMeter.calcXpos(logicalW);
+    }
+    if (typeof inst.setArcadeMode === "function") inst.setArcadeMode();
+    if (el) {
+      const match = /scale\\(([-\\d.]+)/.exec(el.style.transform || "");
+      const internatScale = match ? Number(match[1]) : 0;
+      if (!(internatScale > 1.15)) {
+        const scale = Math.max(
+          1,
+          Math.min(window.innerWidth / logicalW, window.innerHeight / logicalH)
+        );
+        el.style.transformOrigin = "center center";
+        el.style.transform = "scale(" + scale + ")";
+      }
+    }
+  } catch (err) {}
+  return true;
+}"""
+
+RESUME_JS = """() => {
+  const inst = Runner.getInstance();
+  if (!inst || inst.crashed || inst.playingIntro || !inst.activated) {
+    return { ok: false };
+  }
+  if (inst.playing && inst.raqId) {
+    return { ok: true, resumed: false };
+  }
+  inst.paused = false;
+  inst.setPlayStatus(true);
+  inst.time = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+  if (!inst.raqId) inst.update();
+  return { ok: true, resumed: true, playing: !!inst.playing, raqId: inst.raqId };
+}"""
+
 
 def _kind(obstacle: dict[str, Any]) -> str:
     raw = str(obstacle.get("kind") or obstacle.get("type") or "")
@@ -213,29 +339,49 @@ class ChromeDino:
         headed: bool = True,
         speed_cap: float | None = 9.0,
         chrome_channel: str = "chrome",
+        fullscreen: bool = True,
+        window_size: tuple[int, int] | None = None,
+        in_page_control: bool = True,
+        lead_frames: int = 8,
+        provider: str | None = None,
     ) -> None:
         self.headed = headed
         self.speed_cap = speed_cap
         self.chrome_channel = chrome_channel
+        self.fullscreen = fullscreen and headed
+        self.window_size = window_size or (1920, 1200)
+        self.in_page_control = in_page_control
+        self.lead_frames = lead_frames
+        self.provider = provider or ("heuristic" if in_page_control else "jev")
         self.last_intent: Intent | None = None
+        width, height = self.window_size
+        launch_args = [
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-background-timer-throttling",
+            "--disable-renderer-backgrounding",
+            "--disable-backgrounding-occluded-windows",
+            f"--window-size={width},{height}",
+            "--window-position=0,0",
+        ]
+        if self.fullscreen:
+            launch_args.append("--start-fullscreen")
         self._playwright = sync_playwright().start()
         self._browser = self._playwright.chromium.launch(
             channel=chrome_channel,
             headless=not headed,
-            args=[
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-background-timer-throttling",
-                "--disable-renderer-backgrounding",
-                "--disable-backgrounding-occluded-windows",
-                "--window-size=1000,640",
-            ],
+            args=launch_args,
         )
-        self._page = self._browser.new_page(viewport={"width": 1000, "height": 520})
+        if self.fullscreen:
+            self._context = self._browser.new_context(no_viewport=True)
+        else:
+            self._context = self._browser.new_context(
+                viewport={"width": width, "height": min(height, 800)}
+            )
+        self._page = self._context.new_page()
         self._cdp = self._page.context.new_cdp_session(self._page)
         self._duck_held = False
         self._last_state: dict[str, Any] | None = None
-        self._hud_ticks = 0
         self._open_dino()
 
     def _open_dino(self) -> None:
@@ -250,10 +396,62 @@ class ChromeDino:
             timeout=8000,
         )
         self._page.evaluate(PATCH_DT_JS)
+        self._page.evaluate(BOT_JS)
+        self._set_bot_control(self.in_page_control, self.provider, self.lead_frames)
+        self._page.evaluate(PREP_PAGE_JS)
+        self._enter_fullscreen()
+        self._page.evaluate(ARCADE_JS)
         try:
             self._page.locator("canvas").first.click(timeout=2000)
         except Error:
             pass
+
+    def _enter_fullscreen(self) -> None:
+        if not self.fullscreen:
+            return
+        try:
+            window = self._cdp.send("Browser.getWindowForTarget")
+            self._cdp.send(
+                "Browser.setWindowBounds",
+                {"windowId": window["windowId"], "bounds": {"windowState": "fullscreen"}},
+            )
+        except Exception:
+            pass
+        try:
+            self._page.evaluate(
+                """() => {
+                  const root = document.documentElement;
+                  if (root && root.requestFullscreen) root.requestFullscreen().catch(() => {});
+                }"""
+            )
+        except Exception:
+            pass
+
+    def _set_bot_control(self, enabled: bool, provider: str, lead_frames: int | None = None) -> None:
+        self.in_page_control = enabled
+        self.provider = provider
+        if lead_frames is not None:
+            self.lead_frames = lead_frames
+        self._page.evaluate(BOT_JS)
+        self._page.evaluate(
+            """({enabled, provider, leadFrames}) => {
+              const jev = window.__dinoJev;
+              if (!jev) return false;
+              jev.enabled = !!enabled;
+              jev.provider = provider;
+              jev.config = jev.config || {};
+              if (leadFrames != null) jev.config.leadFrames = leadFrames;
+              return true;
+            }""",
+            {
+                "enabled": enabled,
+                "provider": provider,
+                "leadFrames": self.lead_frames,
+            },
+        )
+
+    def set_control(self, policy: str) -> None:
+        self._set_bot_control(policy == "heuristic", policy, self.lead_frames)
 
     def _key(self, key_code: int, down: bool) -> None:
         name = " " if key_code == KEY_JUMP else "ArrowDown"
@@ -315,6 +513,9 @@ class ChromeDino:
                 self._page.evaluate(FORCE_ACTIVATE_JS)
         if self.speed_cap:
             self._page.evaluate(CAP_SPEED_JS, self.speed_cap)
+        self._page.evaluate(ARCADE_JS)
+        self._page.evaluate(RESUME_JS)
+        self._set_bot_control(self.in_page_control, self.provider, self.lead_frames)
 
     def restart(self) -> None:
         self._set_duck(False)
@@ -326,6 +527,9 @@ class ChromeDino:
         )
         if self.speed_cap:
             self._page.evaluate(CAP_SPEED_JS, self.speed_cap)
+        self._page.evaluate(ARCADE_JS)
+        self._page.evaluate(RESUME_JS)
+        self._set_bot_control(self.in_page_control, self.provider, self.lead_frames)
 
     def close(self) -> None:
         self._set_duck(False)
@@ -333,6 +537,7 @@ class ChromeDino:
         self._playwright.stop()
 
     def observe(self) -> dict[str, Any]:
+        self._page.evaluate(RESUME_JS)
         raw = self._page.evaluate(SNAPSHOT_JS, self.speed_cap)
         if not raw or not raw.get("ok"):
             raise RuntimeError(raw.get("error") if raw else "dino snapshot failed")
@@ -373,33 +578,26 @@ class ChromeDino:
 
     def apply(self, intent: Intent) -> None:
         self.last_intent = intent
-        action = "run"
-        if intent.jump:
-            action = "jump"
-        elif intent.duck:
-            action = "duck"
-        self._page.evaluate(APPLY_JS, action)
-        self._duck_held = action == "duck"
-        self._hud_ticks += 1
-        if self._last_state is not None and (action != "run" or self._hud_ticks % 5 == 0):
-            self._paint_hud(self._last_state, intent)
-
-    def _paint_hud(self, state: dict[str, Any], intent: Intent) -> None:
-        nearest = state.get("nearest_obstacle")
-        payload = {
-            "provider": intent.provider,
-            "action": intent.action,
-            "score": (state.get("run") or {}).get("score"),
-            "speed": (state.get("run") or {}).get("speed"),
-            "latency_ms": intent.latency_ms,
-            "jump_p": round(float(intent.nouls.get("jump_now") or 0), 2),
-            "duck_p": round(float(intent.nouls.get("duck_now") or 0), 2),
-            "nearest": nearest,
-        }
-        self._page.evaluate(HUD_JS, payload)
+        payload = intent.hud_payload()
+        in_page = self.in_page_control and intent.provider == "heuristic"
+        payload["set_action"] = not in_page
+        if in_page:
+            self._page.evaluate(HUD_JS, payload)
+            return
+        self._page.evaluate(APPLY_JS, payload)
+        self._duck_held = payload["action"] == "duck"
 
     def screenshot_png(self) -> bytes | None:
-        return self._page.screenshot(type="png")
+        return None
 
     def hud_note(self, text: str) -> None:
-        self._page.evaluate(HUD_JS, {"provider": "idle", "action": text, "score": 0, "speed": 0})
+        self._page.evaluate(
+            HUD_JS,
+            {
+                "provider": self.provider,
+                "action": "run",
+                "asked": text,
+                "note": text,
+                "set_action": False,
+            },
+        )

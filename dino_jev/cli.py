@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import time
 
-from dino_jev.loop import RunLoop, default_policy, make_client, make_session
+from dino_jev.loop import HEURISTIC_CHROME_DT, RunLoop, default_policy, make_client, make_session
 from dino_jev.probe import probe_dino
 from dino_jev.server import DEFAULT_PORT, serve
 
@@ -42,7 +42,14 @@ def main() -> None:
     play.add_argument("--policy", choices=("heuristic", "jev"), default=None)
     play.add_argument("--backend", choices=("chrome", "fake"), default="chrome")
     play.add_argument("--headless", action="store_true")
+    play.add_argument("--windowed", action="store_true", help="Do not fullscreen the Chrome window")
     play.add_argument("--speed-cap", type=_speed_cap, default=9.0)
+    play.add_argument(
+        "--lead-frames",
+        type=int,
+        default=8,
+        help="Internat frames before impact to jump if the hop still clears. Lower = later (wide clusters). Higher = earlier.",
+    )
     play.add_argument("--no-stop-on-crash", action="store_true")
 
     serve_cmd = sub.add_parser("serve", help="Open the local inspector")
@@ -51,7 +58,14 @@ def main() -> None:
     serve_cmd.add_argument("--policy", choices=("heuristic", "jev"), default=None)
     serve_cmd.add_argument("--backend", choices=("chrome", "fake"), default="chrome")
     serve_cmd.add_argument("--headless", action="store_true")
+    serve_cmd.add_argument("--windowed", action="store_true", help="Do not fullscreen the Chrome window")
     serve_cmd.add_argument("--speed-cap", type=_speed_cap, default=9.0)
+    serve_cmd.add_argument(
+        "--lead-frames",
+        type=int,
+        default=8,
+        help="Internat frames before impact to jump if the hop still clears. Lower = later (wide clusters). Higher = earlier.",
+    )
 
     sub.add_parser("probe-dino", help="Confirm chrome://dino/ exposes Runner.getInstance()")
 
@@ -63,9 +77,16 @@ def main() -> None:
             session_kwargs = {
                 "headed": not args.headless,
                 "speed_cap": args.speed_cap,
+                "fullscreen": not args.windowed and not args.headless,
+                "in_page_control": policy == "heuristic",
+                "lead_frames": args.lead_frames,
+                "provider": policy,
             }
         session = make_session(args.backend, **session_kwargs)
-        loop = RunLoop(session, make_client(policy))
+        loop_kwargs: dict = {}
+        if policy == "heuristic" and args.backend == "chrome":
+            loop_kwargs["dt"] = HEURISTIC_CHROME_DT
+        loop = RunLoop(session, make_client(policy), **loop_kwargs)
         started = time.perf_counter()
         try:
             session.start_run()
@@ -76,8 +97,12 @@ def main() -> None:
                     break
                 frame = loop.tick_paced()
                 frames.append(frame)
-                if not args.no_stop_on_crash and (frame.get("run") or {}).get("crashed"):
-                    break
+                if (frame.get("run") or {}).get("crashed"):
+                    if args.no_stop_on_crash:
+                        session.restart()
+                        session.start_run()
+                    else:
+                        break
             last = frames[-1] if frames else loop.snapshot()
             run = last.get("run") or {}
             print(
@@ -106,6 +131,8 @@ def main() -> None:
             backend=args.backend,
             headed=not args.headless,
             speed_cap=args.speed_cap,
+            fullscreen=not args.windowed and not args.headless,
+            lead_frames=args.lead_frames,
         )
         return
     if args.cmd == "probe-dino":

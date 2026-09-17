@@ -35,8 +35,11 @@ class Intent:
     raw: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
+        hud = self.hud_payload()
         return {
             "action": self.action,
+            "asked": hud["asked"],
+            "gated": hud["gated"],
             "jump": self.jump,
             "duck": self.duck,
             "urgency": self.urgency,
@@ -45,6 +48,27 @@ class Intent:
             "nouls": self.nouls,
             "latency_ms": self.latency_ms,
             "provider": self.provider,
+        }
+
+    def hud_payload(self) -> dict[str, Any]:
+        """Compact TypeSafe answers for the internat overlay. Not pixels."""
+        answers = self.raw or {}
+        action_answer = answers.get("action") if isinstance(answers.get("action"), dict) else {}
+        asked = str((action_answer or {}).get("choice") or self.action)
+        probs = dict(self.probabilities.get("action") or {})
+        return {
+            "provider": self.provider,
+            "action": self.action,
+            "asked": asked,
+            "gated": asked != self.action,
+            "confidence": round(float((self.confidence or {}).get("action") or 0.0), 3),
+            "run_p": round(float(probs.get("run") or 0.0), 3),
+            "jump_p": round(float(probs.get("jump") or 0.0), 3),
+            "duck_p": round(float(probs.get("duck") or 0.0), 3),
+            "jump_now": round(float(self.nouls.get("jump_now") or 0.0), 3),
+            "duck_now": round(float(self.nouls.get("duck_now") or 0.0), 3),
+            "urgency": round(float(self.urgency or 0.0), 3),
+            "latency_ms": self.latency_ms,
         }
 
 
