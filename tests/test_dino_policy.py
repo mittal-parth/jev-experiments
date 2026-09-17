@@ -204,6 +204,9 @@ def test_intent_hud_payload_exposes_typesafe_heads():
     assert payload["duck_now"] == 0.1
     assert payload["urgency"] == 1.2
     assert payload["latency_ms"] == 18.4
+    assert payload["armed"] == "jump"
+    assert payload["armed_id"] == "o0"
+    assert payload["arm_gap"] == 46.0
     assert dumped["asked"] == "jump"
     assert dumped["gated"] is False
 

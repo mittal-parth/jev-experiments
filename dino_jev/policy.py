@@ -32,6 +32,8 @@ class Intent:
     nouls: dict[str, float]
     latency_ms: float
     provider: str
+    armed_id: str | None = None
+    arm_gap: float | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
@@ -51,15 +53,19 @@ class Intent:
         }
 
     def hud_payload(self) -> dict[str, Any]:
-        """Compact TypeSafe answers for the internat overlay. Not pixels."""
+        """Compact TypeSafe answers for the dino overlay. Not pixels."""
         answers = self.raw or {}
         action_answer = answers.get("action") if isinstance(answers.get("action"), dict) else {}
         asked = str((action_answer or {}).get("choice") or self.action)
         probs = dict(self.probabilities.get("action") or {})
+        armed = self.action if self.action in {"jump", "duck"} else None
         return {
             "provider": self.provider,
             "action": self.action,
             "asked": asked,
+            "armed": armed,
+            "armed_id": self.armed_id,
+            "arm_gap": self.arm_gap,
             "gated": asked != self.action,
             "confidence": round(float((self.confidence or {}).get("action") or 0.0), 3),
             "run_p": round(float(probs.get("run") or 0.0), 3),
@@ -176,6 +182,14 @@ def compose_intent(
     else:
         action = "run"
 
+    armed_id: str | None = None
+    arm_gap: float | None = None
+    if action in {"jump", "duck"} and isinstance(nearest, dict):
+        raw_id = nearest.get("id")
+        armed_id = str(raw_id) if raw_id is not None else None
+        gap_raw = nearest.get("gap_px")
+        arm_gap = float(gap_raw) if gap_raw is not None else None
+
     return Intent(
         action=action,
         jump=jump,
@@ -186,5 +200,7 @@ def compose_intent(
         nouls={"jump_now": jump_p, "duck_now": duck_p},
         latency_ms=latency_ms,
         provider=provider,
+        armed_id=armed_id,
+        arm_gap=arm_gap,
         raw=answers,
     )

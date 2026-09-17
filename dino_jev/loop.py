@@ -13,6 +13,7 @@ from dino_jev.telemetry import RunRecorder
 
 DEFAULT_DT = 1 / 30
 HEURISTIC_CHROME_DT = 0.25
+JEV_CHROME_DT = 0.0
 
 
 class DinoSession(Protocol):
@@ -111,6 +112,9 @@ class RunLoop:
         self._halt_for_tick()
         try:
             state = self.session.observe()
+            if isinstance(state, dict) and self.last_intent is not None:
+                state = dict(state)
+                state["last_latency_ms"] = round(float(self.last_intent.latency_ms), 1)
             body = request_body(state, self.model)
             answers, latency_ms, usage = self.client.decide(body)
             self.last_usage = usage

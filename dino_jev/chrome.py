@@ -82,8 +82,16 @@ SNAPSHOT_JS = """(cap) => {
       jumping: !!trex.jumping,
       ducking: !!trex.ducking,
     },
-    obstacles: packed.slice(0, 5),
+    obstacles: packed.slice(0, 3),
   };
+}"""
+
+POLL_COMMAND_JS = """() => {
+  const jev = window.__dinoJev;
+  if (!jev || !jev.pendingCommand) return null;
+  const cmd = jev.pendingCommand;
+  jev.pendingCommand = null;
+  return cmd;
 }"""
 
 HUD_JS = """(payload) => {
@@ -200,18 +208,43 @@ PATCH_DT_JS = """() => {
 APPLY_JS = """(payload) => {
   const inst = Runner.getInstance();
   const action = payload && payload.action;
+  const provider = payload && payload.provider;
   const jev = window.__dinoJev;
   if (jev) {
-    jev.provider = (payload && payload.provider) || jev.provider;
+    jev.provider = provider || jev.provider;
     if (!payload || payload.set_action !== false) jev.action = action;
     jev.reply = payload;
     jev._replySeq = (jev._replySeq || 0) + 1;
+    if (provider === "jev") {
+      if (action === "jump" || action === "duck") {
+        jev.armed = action;
+        jev.armedId = payload.armed_id || null;
+        jev.armGap = payload.arm_gap != null ? payload.arm_gap : null;
+      } else {
+        jev.armed = null;
+        jev.armedId = null;
+        jev.armGap = null;
+      }
+    }
     if (typeof jev.paintHud === "function") jev.paintHud(inst);
+    if (provider === "jev" && typeof jev.applyJevIntent === "function") {
+      jev.applyJevIntent(inst, action);
+    }
   }
   if (!inst || !inst.tRex) return { ok: false };
   const t = inst.tRex;
   if (inst.crashed || !inst.playing || inst.playingIntro) {
     return { ok: true, skipped: true, crashed: !!inst.crashed };
+  }
+  if (provider === "jev") {
+    if (action === "run" && t.ducking) t.setDuck(false);
+    return {
+      ok: true,
+      armed: jev && jev.armed,
+      jumping: !!t.jumping,
+      ducking: !!t.ducking,
+      y: t.yPos,
+    };
   }
   if (action === "jump" && !t.jumping && !t.ducking) {
     t.startJump(inst.currentSpeed);
@@ -290,8 +323,8 @@ ARCADE_JS = """() => {
     if (typeof inst.setArcadeMode === "function") inst.setArcadeMode();
     if (el) {
       const match = /scale\\(([-\\d.]+)/.exec(el.style.transform || "");
-      const internatScale = match ? Number(match[1]) : 0;
-      if (!(internatScale > 1.15)) {
+      const arcadeScale = match ? Number(match[1]) : 0;
+      if (!(arcadeScale > 1.15)) {
         const scale = Math.max(
           1,
           Math.min(window.innerWidth / logicalW, window.innerHeight / logicalH)
@@ -317,27 +350,6 @@ RESUME_JS = """() => {
   inst.time = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
   if (!inst.raqId) inst.update();
   return { ok: true, resumed: true, playing: !!inst.playing, raqId: inst.raqId };
-}"""
-
-HALT_RAF_JS = """() => {
-  const inst = Runner.getInstance();
-  if (!inst) return { ok: false };
-  if (inst.raqId) {
-    cancelAnimationFrame(inst.raqId);
-    inst.raqId = 0;
-  }
-  return { ok: true, playing: !!inst.playing, crashed: !!inst.crashed };
-}"""
-
-STEP_FRAMES_JS = """(n) => {
-  const inst = Runner.getInstance();
-  if (!inst) return { ok: false };
-  const steps = Math.max(1, Math.min(Number(n) || 1, 24));
-  for (let i = 0; i < steps; i += 1) {
-    inst.update();
-    if (inst.crashed) break;
-  }
-  return { ok: true, crashed: !!inst.crashed, playing: !!inst.playing };
 }"""
 
 
@@ -366,7 +378,6 @@ class ChromeDino:
         in_page_control: bool = True,
         lead_frames: int = 8,
         provider: str | None = None,
-        sync_mode: str = "live",
     ) -> None:
         self.headed = headed
         self.speed_cap = speed_cap
@@ -376,7 +387,6 @@ class ChromeDino:
         self.in_page_control = in_page_control
         self.lead_frames = lead_frames
         self.provider = provider or ("heuristic" if in_page_control else "jev")
-        self.sync_mode = sync_mode
         self.last_intent: Intent | None = None
         width, height = self.window_size
         launch_args = [
@@ -421,7 +431,7 @@ class ChromeDino:
         )
         self._page.evaluate(PATCH_DT_JS)
         self._page.evaluate(BOT_JS)
-        self._set_bot_control(self.in_page_control, self.provider, self.lead_frames)
+        self._set_bot_control(True, self.provider, self.lead_frames)
         self._page.evaluate(PREP_PAGE_JS)
         self._enter_fullscreen()
         self._page.evaluate(ARCADE_JS)
@@ -451,31 +461,33 @@ class ChromeDino:
         except Exception:
             pass
 
-    def _set_bot_control(self, enabled: bool, provider: str, lead_frames: int | None = None) -> None:
-        self.in_page_control = enabled
+    def _set_bot_control(self, page_loop: bool, provider: str, lead_frames: int | None = None) -> None:
+        self.in_page_control = provider == "heuristic"
         self.provider = provider
         if lead_frames is not None:
             self.lead_frames = lead_frames
         self._page.evaluate(BOT_JS)
         self._page.evaluate(
-            """({enabled, provider, leadFrames}) => {
+            """({pageLoop, provider, leadFrames, jevLeadBoost}) => {
               const jev = window.__dinoJev;
               if (!jev) return false;
-              jev.enabled = !!enabled;
+              jev.enabled = !!pageLoop;
               jev.provider = provider;
               jev.config = jev.config || {};
               if (leadFrames != null) jev.config.leadFrames = leadFrames;
+              if (jevLeadBoost != null) jev.config.jevLeadBoost = jevLeadBoost;
               return true;
             }""",
             {
-                "enabled": enabled or provider == "jev",
+                "pageLoop": page_loop,
                 "provider": provider,
                 "leadFrames": self.lead_frames,
+                "jevLeadBoost": 14,
             },
         )
 
     def set_control(self, policy: str) -> None:
-        self._set_bot_control(policy == "heuristic", policy, self.lead_frames)
+        self._set_bot_control(True, policy, self.lead_frames)
 
     def _key(self, key_code: int, down: bool) -> None:
         name = " " if key_code == KEY_JUMP else "ArrowDown"
@@ -506,6 +518,15 @@ class ChromeDino:
         elif not duck and self._duck_held:
             self._key(KEY_DUCK, False)
             self._duck_held = False
+
+    def poll_command(self) -> str | None:
+        try:
+            raw = self._page.evaluate(POLL_COMMAND_JS)
+        except Error:
+            return None
+        if raw in {"start", "stop", "reset", "step"}:
+            return str(raw)
+        return None
 
     def start_run(self) -> None:
         self._set_duck(False)
@@ -539,18 +560,7 @@ class ChromeDino:
             self._page.evaluate(CAP_SPEED_JS, self.speed_cap)
         self._page.evaluate(ARCADE_JS)
         self._page.evaluate(RESUME_JS)
-        self._set_bot_control(self.in_page_control, self.provider, self.lead_frames)
-        if self.sync_mode == "step":
-            self.halt_animation()
-
-    def halt_animation(self) -> None:
-        self._page.evaluate(HALT_RAF_JS)
-
-    def resume_animation(self) -> None:
-        self._page.evaluate(RESUME_JS)
-
-    def step_frames(self, count: int = 1) -> dict[str, Any]:
-        return self._page.evaluate(STEP_FRAMES_JS, count) or {}
+        self._set_bot_control(True, self.provider, self.lead_frames)
 
     def restart(self) -> None:
         self._set_duck(False)
@@ -564,9 +574,7 @@ class ChromeDino:
             self._page.evaluate(CAP_SPEED_JS, self.speed_cap)
         self._page.evaluate(ARCADE_JS)
         self._page.evaluate(RESUME_JS)
-        self._set_bot_control(self.in_page_control, self.provider, self.lead_frames)
-        if self.sync_mode == "step":
-            self.halt_animation()
+        self._set_bot_control(True, self.provider, self.lead_frames)
 
     def close(self) -> None:
         self._set_duck(False)
@@ -574,8 +582,7 @@ class ChromeDino:
         self._playwright.stop()
 
     def observe(self) -> dict[str, Any]:
-        if self.sync_mode == "live":
-            self._page.evaluate(RESUME_JS)
+        self._page.evaluate(RESUME_JS)
         raw = self._page.evaluate(SNAPSHOT_JS, self.speed_cap)
         if not raw or not raw.get("ok"):
             raise RuntimeError(raw.get("error") if raw else "dino snapshot failed")
@@ -618,11 +625,9 @@ class ChromeDino:
     def apply(self, intent: Intent) -> None:
         self.last_intent = intent
         payload = intent.hud_payload()
-        in_page = self.in_page_control
-        payload["set_action"] = False if in_page else True
+        in_page = self.in_page_control and intent.provider == "heuristic"
+        payload["set_action"] = not in_page
         if in_page:
-            payload["duck"] = intent.duck
-            payload["jump"] = intent.jump
             self._page.evaluate(HUD_JS, payload)
             return
         self._page.evaluate(APPLY_JS, payload)

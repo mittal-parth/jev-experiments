@@ -112,6 +112,15 @@ main {
   align-items: center;
 }
 
+.display-controls {
+  margin-bottom: 12px;
+}
+
+#start {
+  font-size: 16px;
+  padding: 10px 18px;
+}
+
 button,
 select {
   background: var(--orange);

@@ -20,8 +20,7 @@
   jev.speed = 0;
   jev.gap = null;
   jev._hudAt = 0;
-  jev.config = { leadFrames: LEAD_FRAMES, lastChanceFrames: 2 };
-  jev.externalAction = null;
+  jev.config = { leadFrames: LEAD_FRAMES, lastChanceFrames: 2, jevLeadBoost: 14 };
 
   function hit(dx, dy, dw, dh, ox, oy, ow, oh) {
     return (
@@ -92,6 +91,7 @@
       const type = (obstacle.typeConfig && obstacle.typeConfig.type) || "";
       const height = (obstacle.typeConfig && obstacle.typeConfig.height) || 35;
       out.push({
+        id: "o" + out.length,
         x: obstacle.xPos,
         y: obstacle.yPos,
         w: width,
@@ -99,7 +99,7 @@
         type,
         kind: type === "pterodactyl" ? "pterodactyl" : type.indexOf("cactus") === 0 ? "cactus" : "other",
       });
-      if (out.length >= 5) break;
+      if (out.length >= 3) break;
     }
     return out;
   }
@@ -115,71 +115,34 @@
     return "ground";
   }
 
-  function duckBoxHitsNow(obstacles, dinoX, groundY) {
-    const duckY = groundY + (DINO_H - DINO_DUCK_H);
-    for (const obs of obstacles) {
-      if (hit(dinoX, duckY, DINO_DUCK_W, DINO_DUCK_H, obs.x, obs.y, obs.w, obs.h)) return true;
-    }
-    return false;
-  }
-
-  function midBirdBlocking(nearest, dinoX, dinoW) {
-    return nearest && nearest.x + nearest.w >= dinoX + dinoW - 4;
-  }
-
-  function adaptiveLead(lead, speed) {
-    return Math.max(4, Math.min(lead, Math.round(lead - Math.max(0, speed - 6.5) * 2.1)));
-  }
-
-  function duckClearsMid(obstacles, speed, dinoX, groundY) {
-    const duckY = groundY + (DINO_H - DINO_DUCK_H);
-    return firstHit(obstacles, speed, dinoX, duckY, DINO_DUCK_W, DINO_DUCK_H, 24) === null;
-  }
-
   function decide(inst) {
     const trex = inst.tRex;
     if (!trex || trex.jumping || inst.crashed || inst.playingIntro || !inst.playing) return "run";
     const obstacles = packObstacles(inst);
-    if (!obstacles.length) {
-      if (trex.ducking) {
-        jev._duckClear = (jev._duckClear || 0) + 1;
-        if (jev._duckClear < 5) return "duck";
-        jev._duckClear = 0;
-      }
-      return "run";
-    }
-    jev._duckClear = 0;
+    if (!obstacles.length) return "run";
     const speed = inst.currentSpeed;
     const dinoX = trex.xPos;
     const groundY = trex.groundYPos;
-    if (trex.ducking) {
-      const nearest = obstacles[0];
-      if (nearest && clearance(nearest) === "mid") {
-        const tail = nearest.x + nearest.w;
-        if (tail > dinoX + 8) return "duck";
-      }
-      return "run";
-    }
     const nearest = obstacles[0];
     const how = clearance(nearest);
     if (how === "high" || how === "clear") return "run";
     if (how === "mid") {
-      const lead = adaptiveLead((jev.config && jev.config.leadFrames) || LEAD_FRAMES, speed);
-      const horizon = Math.max(22, Math.round(lead + speed * 0.35));
-      const stand = firstHit(obstacles, speed, dinoX, groundY, DINO_W, DINO_H, horizon);
-      const closeEnough = stand !== null && stand <= lead;
-      if (
-        closeEnough &&
-        !duckBoxHitsNow(obstacles, dinoX, groundY) &&
-        duckClearsMid(obstacles, speed, dinoX, groundY)
-      ) {
-        return "duck";
-      }
+      const stand = firstHit(obstacles, speed, dinoX, groundY, DINO_W, DINO_H, 18);
+      const duckHit = firstHit(
+        obstacles,
+        speed,
+        dinoX,
+        groundY + (DINO_H - DINO_DUCK_H),
+        DINO_DUCK_W,
+        DINO_DUCK_H,
+        12
+      );
+      if (stand !== null && duckHit === null) return "duck";
       return "run";
     }
     const standHit = firstHit(obstacles, speed, dinoX, groundY, DINO_W, DINO_H, STAND_HORIZON);
     if (standHit === null) return "run";
-    const lead = adaptiveLead((jev.config && jev.config.leadFrames) || LEAD_FRAMES, speed);
+    const lead = (jev.config && jev.config.leadFrames) || LEAD_FRAMES;
     const lastChance = (jev.config && jev.config.lastChanceFrames) || 2;
     const delayed = obstacles.map((obs) => ({ ...obs, x: obs.x - speed }));
     if (jumpClears(obstacles, speed, dinoX, groundY)) {
@@ -202,6 +165,123 @@
     jev.action = action;
   }
 
+  function holdsForClusteredHop(obstacles, speed, dinoX, groundY) {
+    if (!jumpClears(obstacles, speed, dinoX, groundY)) return false;
+    const delayed = obstacles.map((obs) => ({ ...obs, x: obs.x - speed }));
+    return jumpClears(delayed, speed, dinoX, groundY);
+  }
+
+  function shouldCommitSingleJumpNow(obstacles, speed, dinoX, groundY) {
+    if (holdsForClusteredHop(obstacles, speed, dinoX, groundY)) return false;
+    if (!jumpClears(obstacles, speed, dinoX, groundY)) return false;
+    const delayed = obstacles.map((obs) => ({ ...obs, x: obs.x - speed }));
+    return !jumpClears(delayed, speed, dinoX, groundY);
+  }
+
+  function armedDuckNow(inst, obstacles, speed, dinoX, groundY) {
+    const stand = firstHit(obstacles, speed, dinoX, groundY, DINO_W, DINO_H, 18);
+    const duckHit = firstHit(
+      obstacles,
+      speed,
+      dinoX,
+      groundY + (DINO_H - DINO_DUCK_H),
+      DINO_DUCK_W,
+      DINO_DUCK_H,
+      14
+    );
+    return stand !== null && duckHit === null;
+  }
+
+  function applyJevIntent(inst, action) {
+    if (!inst || !inst.tRex) return;
+    const trex = inst.tRex;
+    if (inst.crashed || !inst.playing || inst.playingIntro || trex.jumping) return;
+    const obstacles = packObstacles(inst);
+    const nearest = obstacles[0] || null;
+    const how = nearest ? clearance(nearest) : "clear";
+    const speed = inst.currentSpeed;
+    const dinoX = trex.xPos;
+    const groundY = trex.groundYPos;
+    if (action === "run") {
+      if (
+        trex.ducking &&
+        nearest &&
+        how === "mid" &&
+        nearest.x + nearest.w > dinoX + 8
+      ) {
+        jev.action = "duck";
+        return;
+      }
+      if (trex.ducking) trex.setDuck(false);
+      jev.armed = null;
+      jev.armedId = null;
+      jev.armGap = null;
+      jev.action = "run";
+      return;
+    }
+    if (action === "jump" && (how === "ground" || how === "low")) {
+      if (shouldCommitSingleJumpNow(obstacles, speed, dinoX, groundY)) {
+        act(inst, "jump");
+        jev.armed = null;
+        jev.armedId = null;
+        jev.armGap = null;
+        return;
+      }
+      jev.armed = "jump";
+      if (nearest) jev.armedId = nearest.id;
+      return;
+    }
+    if (action === "duck" && how === "mid") {
+      if (armedDuckNow(inst, obstacles, speed, dinoX, groundY)) {
+        act(inst, "duck");
+        jev.armed = null;
+        jev.armedId = null;
+        jev.armGap = null;
+        return;
+      }
+      jev.armed = "duck";
+      if (nearest) jev.armedId = nearest.id;
+      return;
+    }
+  }
+
+  function timeArmed(inst) {
+    if (jev.provider !== "jev" || !jev.armed) return;
+    const trex = inst.tRex;
+    if (!trex || trex.jumping || inst.crashed || inst.playingIntro || !inst.playing) return;
+    const obstacles = packObstacles(inst);
+    const nearest = obstacles[0] || null;
+    if (!nearest) return;
+    if (jev.armedId != null && nearest.id !== jev.armedId) {
+      jev.armed = null;
+      jev.armedId = null;
+      jev.armGap = null;
+      return;
+    }
+    const armed = jev.armed;
+    const how = clearance(nearest);
+    const speed = inst.currentSpeed;
+    const dinoX = trex.xPos;
+    const groundY = trex.groundYPos;
+    if (armed === "jump" && (how === "ground" || how === "low")) {
+      if (decide(inst) === "jump") {
+        act(inst, "jump");
+        jev.armed = null;
+        jev.armedId = null;
+        jev.armGap = null;
+      }
+      return;
+    }
+    if (armed === "duck" && how === "mid") {
+      if (armedDuckNow(inst, obstacles, speed, dinoX, groundY)) {
+        act(inst, "duck");
+        jev.armed = null;
+        jev.armedId = null;
+        jev.armGap = null;
+      }
+    }
+  }
+
   function bar(label, value, win, color) {
     const p = Math.max(0, Math.min(100, Math.round((Number(value) || 0) * 100)));
     return (
@@ -220,7 +300,61 @@
     );
   }
 
+  function mountStartButton() {
+    let wrap = jev._startWrap || document.getElementById("dino-jev-start-wrap");
+    if (wrap) {
+      jev._startWrap = wrap;
+      jev._startBtn = wrap.querySelector("#dino-jev-start");
+      return wrap;
+    }
+    wrap = document.createElement("div");
+    wrap.id = "dino-jev-start-wrap";
+    wrap.style.cssText = [
+      "position:fixed",
+      "top:28px",
+      "left:50%",
+      "transform:translateX(-50%)",
+      "z-index:100000",
+      "pointer-events:auto",
+    ].join(";");
+    const btn = document.createElement("button");
+    btn.id = "dino-jev-start";
+    btn.type = "button";
+    btn.textContent = "Start";
+    btn.style.cssText = [
+      "background:#ff6a00",
+      "color:#140800",
+      "border:0",
+      "border-radius:12px",
+      "padding:14px 32px",
+      "font:700 22px/1.1 ui-sans-serif, system-ui, sans-serif",
+      "letter-spacing:0.06em",
+      "cursor:pointer",
+      "box-shadow:0 10px 28px rgba(0,0,0,0.35)",
+    ].join(";");
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      jev.pendingCommand = "start";
+    });
+    wrap.appendChild(btn);
+    document.documentElement.appendChild(wrap);
+    jev._startWrap = wrap;
+    jev._startBtn = btn;
+    return wrap;
+  }
+
+  function syncStartButton(inst) {
+    const wrap = mountStartButton();
+    const playing = !!(inst && inst.playing && !inst.crashed);
+    wrap.style.display = playing ? "none" : "block";
+    if (jev._startBtn) {
+      jev._startBtn.textContent = inst && inst.crashed ? "Restart" : "Start";
+    }
+  }
+
   function paintHud(inst) {
+    syncStartButton(inst);
     const now = performance.now();
     const seq = jev._replySeq || 0;
     const prevSeq = jev._paintedReply || 0;
@@ -275,8 +409,15 @@
     const reply = jev.reply;
     const asked = reply && reply.asked ? reply.asked : jev.action || "run";
     const exec = jev.action || (reply && reply.action) || "run";
+    const armed = jev.armed || (reply && reply.armed) || null;
     const gated = !!(reply && reply.gated);
     const latency = reply && reply.latency_ms != null ? Math.round(reply.latency_ms) + "ms" : "—";
+    const armGap =
+      reply && reply.arm_gap != null
+        ? Math.round(reply.arm_gap)
+        : jev.armGap != null
+          ? Math.round(jev.armGap)
+          : null;
     const conf = reply && reply.confidence != null ? Math.round(reply.confidence * 100) + "%" : "—";
     const lines = [
       '<div style="letter-spacing:0.12em;text-transform:uppercase;font-size:10px;color:#8b97ab">Dino-Jev · live TypeSafe · no pixels</div>',
@@ -288,6 +429,8 @@
         provider +
         "</span> ask <b>" +
         asked +
+        "</b> · arm <b>" +
+        (armed || "—") +
         "</b> · do <b>" +
         exec +
         "</b>" +
@@ -303,6 +446,7 @@
         (inst ? inst.currentSpeed.toFixed(2) : "0") +
         "  gap " +
         gapText +
+        (armGap != null ? "  arm@" + armGap + "px" : "") +
         "</div>",
     ];
     if (reply && reply.note) {
@@ -327,40 +471,8 @@
     el.innerHTML = lines.join("");
   }
 
-  function executionAction(inst) {
-    const trex = inst.tRex;
-    let action = decide(inst);
-    if (jev.provider !== "jev" || !trex || trex.jumping) return action;
-    const reply = jev.reply;
-    const obstacles = packObstacles(inst);
-    const nearest = obstacles[0];
-    const how = nearest ? clearance(nearest) : "clear";
-    const wantsDuck =
-      reply &&
-      (reply.duck === true ||
-        reply.action === "duck" ||
-        reply.asked === "duck" ||
-        Number(reply.duck_now) >= 0.55);
-    if (wantsDuck && how === "mid") action = "duck";
-    if (trex.ducking && nearest && clearance(nearest) === "mid" && nearest.x + nearest.w > trex.xPos + 8) {
-      action = "duck";
-    }
-    return action;
-  }
-
   jev.tick = function tick(inst) {
     if (!jev.enabled) return;
-    if (jev.provider === "jev") {
-      if (!inst || !inst.playing || inst.crashed || inst.playingIntro) return;
-      const trex = inst.tRex;
-      if (trex && trex.jumping) {
-        jev.action = "jump";
-        return;
-      }
-      act(inst, executionAction(inst));
-      return;
-    }
-    if (jev.provider !== "heuristic") return;
     if (!inst || !inst.playing || inst.crashed || inst.playingIntro) return;
     const trex = inst.tRex;
     if (trex && trex.config && !trex.playingIntro) {
@@ -370,24 +482,40 @@
       jev.action = "jump";
       return;
     }
-    act(inst, decide(inst));
+    if (jev.provider === "heuristic") {
+      act(inst, decide(inst));
+      return;
+    }
+    if (jev.provider === "jev") {
+      if (trex.ducking) {
+        const obstacles = packObstacles(inst);
+        const nearest = obstacles[0];
+        if (nearest && clearance(nearest) === "mid" && nearest.x + nearest.w > trex.xPos + 8) {
+          jev.action = "duck";
+          return;
+        }
+      }
+      timeArmed(inst);
+      return;
+    }
   };
 
   jev.paintHud = paintHud;
+  jev.timeArmed = timeArmed;
+  jev.applyJevIntent = applyJevIntent;
   jev._installed = true;
+  mountStartButton();
 
   const inst = typeof Runner !== "undefined" && Runner.getInstance && Runner.getInstance();
+  syncStartButton(inst);
   if (inst && !inst._jevBotWrapped) {
     const prev = inst.update.bind(inst);
     inst.update = function botUpdate() {
       if (window.__dinoJev) {
         window.__dinoJev.tick(this);
-      }
-      const out = prev();
-      if (window.__dinoJev) {
         window.__dinoJev.paintHud(this);
       }
-      return out;
+      return prev();
     };
     inst._jevBotWrapped = true;
   }
