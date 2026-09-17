@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from playwright.sync_api import Error, sync_playwright
@@ -14,7 +13,7 @@ DINO_URL = "chrome://dino/"
 KEY_JUMP = 32
 KEY_DUCK = 40
 
-SNAPSHOT_JS = """() => {
+SNAPSHOT_JS = """(cap) => {
   if (typeof Runner === "undefined" || typeof Runner.getInstance !== "function") {
     return { ok: false, error: "Runner.getInstance is missing" };
   }
@@ -22,7 +21,14 @@ SNAPSHOT_JS = """() => {
   if (!inst) {
     return { ok: false, error: "Runner instance is missing" };
   }
+  if (cap && cap > 0) {
+    if (inst.config) inst.config.maxSpeed = cap;
+    if (inst.currentSpeed > cap) inst.setSpeed(cap);
+  }
   const trex = inst.tRex;
+  if (trex && !inst.playingIntro && trex.config && trex.xPos !== trex.config.startXPos) {
+    trex.xPos = trex.config.startXPos;
+  }
   const horizon = inst.horizon;
   const obstacles = (horizon && horizon.obstacles) || [];
   const width = trex && trex.ducking ? trex.config.widthDuck : trex.config.width;
@@ -116,20 +122,66 @@ HUD_JS = """(payload) => {
 
 START_JS = """() => {
   const inst = Runner.getInstance();
-  if (!inst) return false;
+  if (!inst) return { ok: false };
   if (inst.crashed) {
     inst.restart();
-    return true;
   }
-  if (!inst.playing) {
-    inst.loadSounds();
-    inst.setPlayStatus(true);
-    inst.update();
-    if (window.errorPageController && window.errorPageController.trackEasterEgg) {
-      window.errorPageController.trackEasterEgg();
-    }
+  return {
+    ok: true,
+    playing: !!inst.playing,
+    crashed: !!inst.crashed,
+    activated: !!inst.activated,
+    x: inst.tRex && inst.tRex.xPos,
+  };
+}"""
+
+FORCE_ACTIVATE_JS = """() => {
+  const inst = Runner.getInstance();
+  if (!inst || !inst.tRex) return false;
+  if (inst.slowSpeedCheckbox) inst.slowSpeedCheckbox.checked = false;
+  try { inst.playIntro(); } catch (e) {}
+  try { inst.startGame(); } catch (e) {}
+  inst.activated = true;
+  inst.playingIntro = false;
+  inst.tRex.playingIntro = false;
+  inst.setPlayStatus(true);
+  if (inst.tRex.xPos < inst.tRex.config.startXPos) {
+    inst.tRex.xPos = inst.tRex.config.startXPos;
   }
+  if (!inst.raqId) inst.update();
   return true;
+}"""
+
+PATCH_DT_JS = """() => {
+  const inst = Runner.getInstance();
+  if (!inst || inst._jevDtPatched) return !!inst;
+  const inner = inst.update.bind(inst);
+  inst.update = function patchedUpdate() {
+    const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+    if (this.time && now - this.time > 34) {
+      this.time = now - 16.67;
+    }
+    return inner();
+  };
+  inst._jevDtPatched = true;
+  return true;
+}"""
+
+APPLY_JS = """(action) => {
+  const inst = Runner.getInstance();
+  if (!inst || !inst.tRex) return { ok: false };
+  const t = inst.tRex;
+  if (inst.crashed || !inst.playing || inst.playingIntro) {
+    return { ok: true, skipped: true, crashed: !!inst.crashed };
+  }
+  if (action === "jump" && !t.jumping && !t.ducking) {
+    t.startJump(inst.currentSpeed);
+  } else if (action === "duck" && !t.jumping) {
+    t.setDuck(true);
+  } else if (action === "run") {
+    if (t.ducking) t.setDuck(false);
+  }
+  return { ok: true, jumping: !!t.jumping, ducking: !!t.ducking, y: t.yPos };
 }"""
 
 CAP_SPEED_JS = """(cap) => {
@@ -183,6 +235,7 @@ class ChromeDino:
         self._cdp = self._page.context.new_cdp_session(self._page)
         self._duck_held = False
         self._last_state: dict[str, Any] | None = None
+        self._hud_ticks = 0
         self._open_dino()
 
     def _open_dino(self) -> None:
@@ -196,6 +249,7 @@ class ChromeDino:
             "() => typeof Runner !== 'undefined' && typeof Runner.getInstance === 'function'",
             timeout=8000,
         )
+        self._page.evaluate(PATCH_DT_JS)
         try:
             self._page.locator("canvas").first.click(timeout=2000)
         except Error:
@@ -232,10 +286,35 @@ class ChromeDino:
             self._duck_held = False
 
     def start_run(self) -> None:
-        self._page.evaluate(START_JS)
+        self._set_duck(False)
+        self._page.evaluate(
+            """() => {
+              const inst = Runner.getInstance();
+              if (inst && inst.slowSpeedCheckbox) inst.slowSpeedCheckbox.checked = false;
+            }"""
+        )
+        status = self._page.evaluate(START_JS)
+        activated = bool(status and status.get("activated") and (status.get("x") or 0) >= 40)
+        if not activated:
+            self._tap_jump()
+            try:
+                self._page.wait_for_function(
+                    """() => {
+                      const inst = Runner.getInstance();
+                      return !!(
+                        inst &&
+                        inst.activated &&
+                        inst.tRex &&
+                        inst.tRex.xPos >= 40 &&
+                        !inst.playingIntro
+                      );
+                    }""",
+                    timeout=4000,
+                )
+            except Error:
+                self._page.evaluate(FORCE_ACTIVATE_JS)
         if self.speed_cap:
             self._page.evaluate(CAP_SPEED_JS, self.speed_cap)
-        self._duck_held = False
 
     def restart(self) -> None:
         self._set_duck(False)
@@ -254,11 +333,9 @@ class ChromeDino:
         self._playwright.stop()
 
     def observe(self) -> dict[str, Any]:
-        raw = self._page.evaluate(SNAPSHOT_JS)
+        raw = self._page.evaluate(SNAPSHOT_JS, self.speed_cap)
         if not raw or not raw.get("ok"):
             raise RuntimeError(raw.get("error") if raw else "dino snapshot failed")
-        if self.speed_cap:
-            self._page.evaluate(CAP_SPEED_JS, self.speed_cap)
         obstacles = []
         for item in raw.get("obstacles") or []:
             packed = dict(item)
@@ -267,7 +344,7 @@ class ChromeDino:
             obstacles.append(packed)
         nearest = obstacles[0] if obstacles else None
         dino = raw.get("dino") or {}
-        return {
+        observation = {
             "goal": GOAL,
             "run": {
                 "playing": bool(raw.get("playing")),
@@ -296,28 +373,16 @@ class ChromeDino:
 
     def apply(self, intent: Intent) -> None:
         self.last_intent = intent
-        live = self.observe()
-        run = live.get("run") or {}
-        dino = live.get("dino") or {}
-        if run.get("crashed"):
-            self._set_duck(False)
-            self._paint_hud(live, intent)
-            return
-        if not run.get("playing") or run.get("intro"):
-            self.start_run()
-            self._paint_hud(live, intent)
-            return
-        if dino.get("jumping"):
-            self._set_duck(False)
-            self._paint_hud(live, intent)
-            return
+        action = "run"
         if intent.jump:
-            self._tap_jump()
+            action = "jump"
         elif intent.duck:
-            self._set_duck(True)
-        else:
-            self._set_duck(False)
-        self._paint_hud(live, intent)
+            action = "duck"
+        self._page.evaluate(APPLY_JS, action)
+        self._duck_held = action == "duck"
+        self._hud_ticks += 1
+        if self._last_state is not None and (action != "run" or self._hud_ticks % 5 == 0):
+            self._paint_hud(self._last_state, intent)
 
     def _paint_hud(self, state: dict[str, Any], intent: Intent) -> None:
         nearest = state.get("nearest_obstacle")

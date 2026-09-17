@@ -74,7 +74,7 @@ def main() -> None:
             while len(frames) < limit:
                 if args.seconds is not None and time.perf_counter() - started >= args.seconds:
                     break
-                frame = loop.tick()
+                frame = loop.tick_paced()
                 frames.append(frame)
                 if not args.no_stop_on_crash and (frame.get("run") or {}).get("crashed"):
                     break

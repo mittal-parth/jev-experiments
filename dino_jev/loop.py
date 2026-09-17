@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from typing import Any, Protocol
 
 from dino_jev.client import DecisionClient, JevClient, has_api_key
@@ -88,10 +89,18 @@ class RunLoop:
         )
         self.session.apply(intent)
         self.last_intent = intent
-        self.last_state = self.session.observe()
+        self.last_state = getattr(self.session, "_last_state", None) or state
         self.ticks += 1
         self.last_error = None
         return self.snapshot()
+
+    def tick_paced(self) -> dict[str, Any]:
+        started = time.perf_counter()
+        frame = self.tick()
+        leftover = self.dt - (time.perf_counter() - started)
+        if leftover > 0:
+            time.sleep(leftover)
+        return frame
 
     def snapshot(self) -> dict[str, Any]:
         state = self.last_state if self.last_state is not None else self.session.observe()
@@ -106,7 +115,7 @@ class RunLoop:
         self.session.start_run()
         frames = []
         for _ in range(ticks):
-            frame = self.tick()
+            frame = self.tick_paced()
             frames.append(frame)
             if stop_on_crash and (frame.get("run") or {}).get("crashed"):
                 break

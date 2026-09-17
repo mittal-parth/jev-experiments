@@ -57,10 +57,18 @@ def _score(value: float) -> dict[str, Any]:
     }
 
 
-def _commit_gap(state: dict[str, Any]) -> float:
+def _should_commit(state: dict[str, Any], obstacle: dict[str, Any]) -> bool:
     run = state.get("run") or {}
     speed = float(run.get("speed") or 6.0)
-    return speed * 12.0 + 36.0
+    gap = float(obstacle.get("gap_px") or 0.0)
+    width = float(obstacle.get("width") or 17.0)
+    tti = obstacle.get("time_to_impact_s")
+    window = speed * 13.0 + 45.0 + min(width, 50.0) * 0.25
+    if 25.0 < gap < window:
+        return True
+    if isinstance(tti, (int, float)) and 0.16 <= tti <= 0.34:
+        return True
+    return False
 
 
 def heuristic_answers(state: dict[str, Any]) -> dict[str, Any]:
@@ -72,9 +80,8 @@ def heuristic_answers(state: dict[str, Any]) -> dict[str, Any]:
     gap = float(obstacle["gap_px"]) if obstacle else 10_000.0
     jumping = bool(dino.get("jumping"))
     crashed = bool(run.get("crashed"))
-    threshold = _commit_gap(state)
-    close = obstacle is not None and gap < threshold
-    very_close = obstacle is not None and gap < threshold * 0.55
+    close = bool(obstacle) and _should_commit(state, obstacle)
+    very_close = bool(obstacle) and gap < 50.0
 
     if crashed or jumping or not close:
         action = "run"
