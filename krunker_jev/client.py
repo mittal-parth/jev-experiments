@@ -10,6 +10,20 @@ from typing import Any, Protocol
 import httpx
 
 TYPESAFE_URL = "https://api.typesafe.ai/v1/systemone"
+API_KEY_ENV_VARS = ("JEV_API_KEY", "TYPESAFE_API_KEY")
+
+
+def resolve_api_key() -> str:
+    """Read the TypeSafe key. Cursor runtime secrets use JEV_API_KEY."""
+    for name in API_KEY_ENV_VARS:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    return ""
+
+
+def has_api_key() -> bool:
+    return bool(resolve_api_key())
 
 
 class DecisionClient(Protocol):
@@ -93,9 +107,11 @@ class JevClient:
     provider = "jev"
 
     def __init__(self, api_key: str | None = None, timeout: float = 8.0) -> None:
-        self.api_key = api_key or os.environ.get("TYPESAFE_API_KEY", "")
+        self.api_key = (api_key or resolve_api_key()).strip()
         if not self.api_key:
-            raise RuntimeError("TYPESAFE_API_KEY is missing; Jev was not called.")
+            raise RuntimeError(
+                "JEV_API_KEY or TYPESAFE_API_KEY is missing; Jev was not called."
+            )
         self.http = httpx.Client(timeout=timeout)
 
     def close(self) -> None:

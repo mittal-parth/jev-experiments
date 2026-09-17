@@ -2,7 +2,16 @@ import math
 
 import pytest
 
-from krunker_jev.client import validate_answers, validate_choice, validate_noul, validate_score
+from krunker_jev.client import (
+    JevClient,
+    has_api_key,
+    resolve_api_key,
+    validate_answers,
+    validate_choice,
+    validate_noul,
+    validate_score,
+)
+from krunker_jev.loop import default_policy
 
 
 def test_validate_choice_accepts_peaked_distribution():
@@ -52,3 +61,32 @@ def test_validate_score_and_bundle():
     }
     validate_score(answers["threat"], 3)
     validate_answers(answers, questions)
+
+
+def test_jev_api_key_wins(monkeypatch):
+    monkeypatch.setenv("JEV_API_KEY", "from-jev")
+    monkeypatch.setenv("TYPESAFE_API_KEY", "from-typesafe")
+    assert resolve_api_key() == "from-jev"
+    assert has_api_key() is True
+    assert default_policy() == "jev"
+    client = JevClient()
+    assert client.api_key == "from-jev"
+    client.close()
+
+
+def test_typesafe_api_key_alias(monkeypatch):
+    monkeypatch.delenv("JEV_API_KEY", raising=False)
+    monkeypatch.setenv("TYPESAFE_API_KEY", "from-typesafe")
+    assert resolve_api_key() == "from-typesafe"
+    assert default_policy() == "jev"
+
+
+def test_missing_key_falls_back_to_heuristic(monkeypatch):
+    monkeypatch.delenv("JEV_API_KEY", raising=False)
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    assert resolve_api_key() == ""
+    assert has_api_key() is False
+    assert default_policy() == "heuristic"
+    with pytest.raises(RuntimeError, match="JEV_API_KEY"):
+        JevClient()
+

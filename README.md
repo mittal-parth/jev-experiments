@@ -45,14 +45,14 @@ Questions and thresholds are in [`krunker_jev/questions.py`](krunker_jev/questio
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]'
-cp .env.example .env   # add TYPESAFE_API_KEY to use Jev
+cp .env.example .env   # or set JEV_API_KEY / TYPESAFE_API_KEY
 python -m krunker_jev serve
 ```
 
 Open http://127.0.0.1:8765
 
 - Without a key the inspector uses `heuristic` (same action space, clearly labeled).
-- With `TYPESAFE_API_KEY` set, choose **jev** and Start.
+- With `JEV_API_KEY` or `TYPESAFE_API_KEY` set, it defaults to **jev**. Cursor runtime secrets named `JEV_API_KEY` are picked up at **agent start**, not on an already-running VM.
 
 Headless:
 

@@ -1,6 +1,6 @@
 """Deterministic fallback that shares Jev's action space.
 
-Used for tests and for the inspector when TYPESAFE_API_KEY is absent.
+Used for tests and for the inspector when JEV_API_KEY / TYPESAFE_API_KEY is absent.
 Labeled as provider=heuristic so it cannot be mistaken for Jev.
 """
 

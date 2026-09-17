@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from krunker_jev.client import DecisionClient, JevClient
+from krunker_jev.client import DecisionClient, JevClient, has_api_key
 from krunker_jev.heuristic import HeuristicClient
 from krunker_jev.policy import compose_intent, request_body
 from krunker_jev.world import Game, Intent
@@ -22,7 +22,7 @@ def make_client(policy: str) -> DecisionClient:
 
 
 def default_policy() -> str:
-    return "jev" if os.environ.get("TYPESAFE_API_KEY") else "heuristic"
+    return "jev" if has_api_key() else "heuristic"
 
 
 class MatchLoop:
