@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "krunker-jev"
+version = "0.1.0"
+description = "A TypeSafe Jev combat loop in a Krunker-style arena."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+krunker-jev = "krunker_jev.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["krunker_jev*"]
+
+[tool.setuptools.package-data]
+krunker_jev = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
