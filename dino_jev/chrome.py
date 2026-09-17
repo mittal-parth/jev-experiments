@@ -157,6 +157,18 @@ PATCH_DT_JS = """() => {
     inst.adjustDimensions = function patchedAdjust() {
       const wasPlaying = this.playing && !this.crashed;
       innerAdjust();
+      if (this.dimensions) {
+        this.dimensions.width = 600;
+        if ("WIDTH" in this.dimensions) this.dimensions.WIDTH = 600;
+      }
+      if (this.containerEl) {
+        this.containerEl.style.width = "600px";
+        this.containerEl.style.height = ((this.dimensions && this.dimensions.height) || 150) + "px";
+      }
+      if (this.distanceMeter && typeof this.distanceMeter.calcXpos === "function") {
+        this.distanceMeter.calcXpos(600);
+      }
+      if (typeof this.setArcadeMode === "function") this.setArcadeMode();
       if (wasPlaying && !this.crashed) {
         this.paused = false;
         this.setPlayStatus(true);
@@ -230,21 +242,29 @@ ARCADE_JS = """() => {
     const trex = inst.tRex;
     if (trex && trex.config && !inst.playingIntro && !trex.playingIntro) {
       trex.xInitialPos = trex.config.startXPos;
-      trex.xPos = trex.config.startXPos;
     }
-    if (typeof inst.setArcadeMode === "function" && inst.isArcadeMode && inst.isArcadeMode()) {
-      inst.setArcadeMode();
+    const logicalW = 600;
+    const logicalH = (inst.dimensions && (inst.dimensions.height || inst.dimensions.HEIGHT)) || 150;
+    if (inst.dimensions) {
+      inst.dimensions.width = logicalW;
+      if ("WIDTH" in inst.dimensions) inst.dimensions.WIDTH = logicalW;
     }
     const el = inst.containerEl;
     if (el) {
+      el.style.width = logicalW + "px";
+      el.style.height = logicalH + "px";
+    }
+    if (inst.distanceMeter && typeof inst.distanceMeter.calcXpos === "function") {
+      inst.distanceMeter.calcXpos(logicalW);
+    }
+    if (typeof inst.setArcadeMode === "function") inst.setArcadeMode();
+    if (el) {
       const match = /scale\\(([-\\d.]+)/.exec(el.style.transform || "");
-      const internatScale = match ? Number(match[1]) : 1;
+      const internatScale = match ? Number(match[1]) : 0;
       if (!(internatScale > 1.15)) {
-        const cssW = el.offsetWidth || (inst.dimensions && inst.dimensions.width) || 600;
-        const cssH = el.offsetHeight || (inst.dimensions && inst.dimensions.height) || 150;
         const scale = Math.max(
           1,
-          Math.min(window.innerWidth / cssW, (window.innerHeight * 0.48) / cssH)
+          Math.min(window.innerWidth / logicalW, window.innerHeight / logicalH)
         );
         el.style.transformOrigin = "center center";
         el.style.transform = "scale(" + scale + ")";

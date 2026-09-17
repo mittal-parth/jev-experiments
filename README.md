@@ -40,7 +40,7 @@ python -m dino_jev play --policy jev --seconds 20
 python -m dino_jev serve
 ```
 
-The command launches Chromium itself on `chrome://dino/` in fullscreen arcade mode. You do not open a separate dino tab. The HUD and the jumper live on that internat page (60fps `Runner` boxes). Each TypeSafe reply paints there as it arrives: action probabilities, `jump_now` / `duck_now`, urgency, latency, and whether code gated the choice. The inspector at http://127.0.0.1:8766 is a decision log only — it does not screenshot the game.
+The command launches Chromium itself on `chrome://dino/` in fullscreen arcade mode. You do not open a separate dino tab. Jump/duck run on that internat page (60fps `Runner` boxes). TypeSafe replies overlay the **bottom-left** corner so internat’s own score and the runner stay visible. The inspector at http://127.0.0.1:8766 is a decision log only — it does not screenshot the game.
 
 - Without a key the loop uses `heuristic` (in-page collision bot, clearly labeled).
 - With `JEV_API_KEY` or `TYPESAFE_API_KEY` set, it defaults to **jev**.

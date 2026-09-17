@@ -196,21 +196,27 @@
       el.id = "dino-jev-hud";
       el.style.cssText = [
         "position:fixed",
-        "top:16px",
+        "top:auto",
+        "right:auto",
+        "bottom:16px",
         "left:16px",
         "z-index:99999",
-        "font:14px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace",
+        "font:13px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace",
         "background:rgba(7,9,13,0.9)",
         "color:#e8edf5",
-        "padding:12px 14px",
+        "padding:10px 12px",
         "border-radius:12px",
         "border:1px solid #243044",
-        "max-width:480px",
+        "max-width:360px",
         "pointer-events:none",
       ].join(";");
       document.documentElement.appendChild(el);
       jev._el = el;
     }
+    el.style.top = "auto";
+    el.style.right = "auto";
+    el.style.bottom = "16px";
+    el.style.left = "16px";
     const provider = jev.provider || "heuristic";
     const color = provider === "jev" ? "#3ee0c5" : "#ff6a00";
     el.style.borderColor = jev._flashUntil && now < jev._flashUntil ? color : "#243044";
