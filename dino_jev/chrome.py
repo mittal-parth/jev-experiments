@@ -367,6 +367,8 @@ class ChromeDino:
 
     def set_control(self, policy: str) -> None:
         self._set_bot_control(policy == "heuristic", policy)
+
+    def _key(self, key_code: int, down: bool) -> None:
         name = " " if key_code == KEY_JUMP else "ArrowDown"
         code = "Space" if key_code == KEY_JUMP else "ArrowDown"
         payload = {

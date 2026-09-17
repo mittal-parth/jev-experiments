@@ -222,6 +222,11 @@
   jev.tick = function tick(inst) {
     if (!jev.enabled || jev.provider !== "heuristic") return;
     if (!inst || !inst.playing || inst.crashed || inst.playingIntro) return;
+    const trex = inst.tRex;
+    if (trex && trex.jumping) {
+      jev.action = "jump";
+      return;
+    }
     act(inst, decide(inst));
   };
 
