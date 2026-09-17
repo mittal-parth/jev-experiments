@@ -6,6 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import threading
+import time
 from typing import Any
 from urllib.parse import urlparse
 
@@ -70,12 +71,17 @@ class ArenaServer:
             with self.lock:
                 if not self.running:
                     return
+                dt = self.loop.dt
+            started = time.perf_counter()
             try:
                 self.step_once()
             except Exception:
                 with self.lock:
                     self.running = False
                 return
+            leftover = dt - (time.perf_counter() - started)
+            if leftover > 0:
+                time.sleep(leftover)
 
 
 def make_handler(arena: ArenaServer) -> type[BaseHTTPRequestHandler]:
