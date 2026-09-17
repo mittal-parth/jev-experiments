@@ -621,6 +621,8 @@ class ChromeDino:
         in_page = self.in_page_control
         payload["set_action"] = False if in_page else True
         if in_page:
+            payload["duck"] = intent.duck
+            payload["jump"] = intent.jump
             self._page.evaluate(HUD_JS, payload)
             return
         self._page.evaluate(APPLY_JS, payload)

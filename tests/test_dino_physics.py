@@ -95,3 +95,47 @@ def test_heuristic_uses_physics_jump():
     intent = compose_intent(answers, state, provider="heuristic", latency_ms=0.4)
     assert answers["action"]["choice"] == "jump"
     assert intent.jump is True
+
+
+def _mid_bird(gap_px: float = 55, *, ducking: bool = False) -> dict:
+    dino_x = 50.0
+    dino_w = 44.0
+    x = dino_x + dino_w + gap_px
+    obstacle = {
+        "id": "o0",
+        "kind": "pterodactyl",
+        "type": "pterodactyl",
+        "x": x,
+        "y": 75,
+        "width": 46,
+        "height": 40,
+        "gap_px": gap_px,
+        "time_to_impact_s": 0.12,
+        "clearance": "mid",
+    }
+    return {
+        "goal": "survive",
+        "run": {"playing": True, "crashed": False, "intro": False, "speed": 8.0, "score": 40},
+        "dino": {
+            "x": dino_x,
+            "y": 93,
+            "ground_y": 93,
+            "width": 59 if ducking else dino_w,
+            "height": 25 if ducking else 47,
+            "jumping": False,
+            "ducking": ducking,
+        },
+        "nearest_obstacle": obstacle,
+        "obstacles": [obstacle],
+    }
+
+
+def test_mid_pterodactyl_ducks_when_close():
+    assert decide_action(_mid_bird(gap_px=42), lead_frames=12) == "duck"
+
+
+def test_mid_pterodactyl_stays_ducked_until_bird_passes():
+    state = _mid_bird(gap_px=-10, ducking=True)
+    assert decide_action(state, lead_frames=12) == "duck"
+    passed = _mid_bird(gap_px=-100, ducking=True)
+    assert decide_action(passed, lead_frames=12) == "run"

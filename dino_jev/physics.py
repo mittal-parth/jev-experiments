@@ -163,6 +163,10 @@ def _mid_bird_blocking(obstacle: dict[str, Any], dino_x: float, dino_w: float = 
     return float(obstacle["x"]) + float(obstacle["width"]) >= dino_x + dino_w - 4
 
 
+def adaptive_lead(lead_frames: int, speed: float) -> int:
+    return max(4, min(lead_frames, int(round(lead_frames - max(0.0, speed - 6.5) * 2.1))))
+
+
 def _duck_clears_mid(
     obstacles: list[dict[str, Any]],
     *,
@@ -198,8 +202,8 @@ def decide_action(state: dict[str, Any], *, lead_frames: int = LEAD_FRAMES) -> s
     ducking = bool(dino.get("ducking"))
     if ducking:
         if obstacles and obstacle_clearance(obstacles[0]) == "mid":
-            dino_w = float(dino.get("width") or DINO_W)
-            if _mid_bird_blocking(obstacles[0], dino_x, dino_w):
+            tail = float(obstacles[0]["x"]) + float(obstacles[0]["width"])
+            if tail > dino_x + 8:
                 return "duck"
         return "run"
     if not obstacles:
@@ -208,7 +212,8 @@ def decide_action(state: dict[str, Any], *, lead_frames: int = LEAD_FRAMES) -> s
     if clearance == "high" or clearance == "clear":
         return "run"
     if clearance == "mid":
-        horizon = max(22, int(round(lead_frames + speed * 0.35)))
+        lead = adaptive_lead(lead_frames, speed)
+        horizon = max(22, int(round(lead + speed * 0.35)))
         stand = first_hit_frame(
             obstacles,
             speed=speed,
@@ -218,7 +223,7 @@ def decide_action(state: dict[str, Any], *, lead_frames: int = LEAD_FRAMES) -> s
             dino_h=DINO_H,
             max_frames=horizon,
         )
-        close_enough = stand is not None and stand <= lead_frames
+        close_enough = stand is not None and stand <= lead
         if (
             close_enough
             and not _duck_box_hits_now(obstacles, dino_x=dino_x, ground_y=ground_y)
@@ -226,6 +231,7 @@ def decide_action(state: dict[str, Any], *, lead_frames: int = LEAD_FRAMES) -> s
         ):
             return "duck"
         return "run"
+    lead = adaptive_lead(lead_frames, speed)
     stand_hit = first_hit_frame(
         obstacles,
         speed=speed,
@@ -241,7 +247,7 @@ def decide_action(state: dict[str, Any], *, lead_frames: int = LEAD_FRAMES) -> s
     clears_now = jump_clears(obstacles, speed=speed, dino_x=dino_x, ground_y=ground_y)
     if clears_now:
         clears_next = jump_clears(delayed, speed=speed, dino_x=dino_x, ground_y=ground_y)
-        if stand_hit <= lead_frames or not clears_next:
+        if stand_hit <= lead or not clears_next:
             return "jump"
         return "run"
     if stand_hit <= 2:
