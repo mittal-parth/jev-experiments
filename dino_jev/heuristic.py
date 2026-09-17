@@ -69,13 +69,13 @@ def _should_commit(state: dict[str, Any], obstacle: dict[str, Any]) -> bool:
     if isinstance(tti, (int, float)) and tti > 0 and gap > 0:
         px_per_sec = gap / tti
     # Jump so the peak is over the cactus and the landing is past its far edge.
-    min_gap = px_per_sec * 0.17
-    max_gap = px_per_sec * 0.46 - dino_w - width - 8.0
+    min_gap = px_per_sec * 0.15
+    max_gap = px_per_sec * 0.50 - dino_w - width - 8.0
     if max_gap < min_gap + 16:
         max_gap = min_gap + 36
     if min_gap < gap < max_gap:
         return True
-    return bool(isinstance(tti, (int, float)) and 0.18 <= tti <= 0.28 and gap < max_gap + 24)
+    return bool(isinstance(tti, (int, float)) and 0.16 <= tti <= 0.30 and gap < max_gap + 24)
 
 
 def _should_duck(state: dict[str, Any], obstacle: dict[str, Any]) -> bool:

@@ -45,6 +45,7 @@ The command launches Chromium itself on `chrome://dino/` in fullscreen arcade mo
 - Without a key the loop uses `heuristic` (distance-threshold bot, clearly labeled).
 - With `JEV_API_KEY` or `TYPESAFE_API_KEY` set, it defaults to **jev**.
 - `--speed-cap 9` (default) keeps `maxSpeed` just above pterodactyl spawn (`8.5`) so Jev's ~80ms tick can still commit. `--speed-cap none` is full internat acceleration.
+- Internat pauses on window blur and on resize. Dino-Jev patches those so the runner keeps going while the inspector or another window is focused.
 
 # Krunker-Jev
 

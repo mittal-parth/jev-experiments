@@ -153,16 +153,48 @@ FORCE_ACTIVATE_JS = """() => {
 }"""
 
 PATCH_DT_JS = """() => {
-  const inst = Runner.getInstance();
+  if (typeof Runner !== "undefined" && Runner.prototype && !Runner.prototype._jevVisPatched) {
+    Runner.prototype.onVisibilityChange = function() {};
+    Runner.prototype._jevVisPatched = true;
+  }
+  const inst = typeof Runner !== "undefined" && typeof Runner.getInstance === "function"
+    ? Runner.getInstance()
+    : null;
   if (!inst || inst._jevDtPatched) return !!inst;
-  const inner = inst.update.bind(inst);
+  inst.onVisibilityChange = function() {};
+  const innerUpdate = inst.update.bind(inst);
   inst.update = function patchedUpdate() {
     const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
     if (this.time && now - this.time > 34) {
       this.time = now - 16.67;
     }
-    return inner();
+    return innerUpdate();
   };
+  if (typeof inst.adjustDimensions === "function") {
+    const innerAdjust = inst.adjustDimensions.bind(inst);
+    inst.adjustDimensions = function patchedAdjust() {
+      const wasPlaying = this.playing && !this.crashed;
+      innerAdjust();
+      if (this.isArcadeMode && this.isArcadeMode() && this.dimensions && this.dimensions.width > 600) {
+        this.dimensions.width = 600;
+        if (this.canvas) this.canvas.width = 600;
+        if (this.containerEl) {
+          this.containerEl.style.width = "600px";
+          this.containerEl.style.height = (this.dimensions.height || 150) + "px";
+        }
+        if (this.distanceMeter && typeof this.distanceMeter.calcXpos === "function") {
+          this.distanceMeter.calcXpos(600);
+        }
+        if (typeof this.setArcadeMode === "function") this.setArcadeMode();
+      }
+      if (wasPlaying && !this.crashed) {
+        this.paused = false;
+        this.setPlayStatus(true);
+        this.time = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+        if (!this.raqId) this.update();
+      }
+    };
+  }
   inst._jevDtPatched = true;
   return true;
 }"""
@@ -209,12 +241,37 @@ PREP_PAGE_JS = """() => {
 ARCADE_JS = """() => {
   const inst = Runner.getInstance();
   if (!inst) return false;
+  if (!document.title.startsWith("chrome://dino/")) {
+    document.title = "chrome://dino/";
+  }
   try {
     document.body.classList.add("arcade-mode");
+    if (inst.dimensions) inst.dimensions.width = 600;
+    if (inst.canvas) inst.canvas.width = 600;
+    if (inst.containerEl) {
+      inst.containerEl.style.width = "600px";
+      inst.containerEl.style.height = ((inst.dimensions && inst.dimensions.height) || 150) + "px";
+    }
+    if (inst.slowSpeedToggleEl) inst.slowSpeedToggleEl.style.display = "none";
+    if (inst.slowSpeedCheckboxLabel) inst.slowSpeedCheckboxLabel.style.display = "none";
     if (typeof inst.setArcadeMode === "function") inst.setArcadeMode();
-    if (typeof inst.adjustDimensions === "function") inst.adjustDimensions();
   } catch (err) {}
   return true;
+}"""
+
+RESUME_JS = """() => {
+  const inst = Runner.getInstance();
+  if (!inst || inst.crashed || inst.playingIntro || !inst.activated) {
+    return { ok: false };
+  }
+  if (inst.playing && inst.raqId) {
+    return { ok: true, resumed: false };
+  }
+  inst.paused = false;
+  inst.setPlayStatus(true);
+  inst.time = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+  if (!inst.raqId) inst.update();
+  return { ok: true, resumed: true, playing: !!inst.playing, raqId: inst.raqId };
 }"""
 
 
@@ -379,9 +436,8 @@ class ChromeDino:
                 self._page.evaluate(FORCE_ACTIVATE_JS)
         if self.speed_cap:
             self._page.evaluate(CAP_SPEED_JS, self.speed_cap)
-        self._page.evaluate(PREP_PAGE_JS)
-        self._enter_fullscreen()
         self._page.evaluate(ARCADE_JS)
+        self._page.evaluate(RESUME_JS)
 
     def restart(self) -> None:
         self._set_duck(False)
@@ -393,9 +449,8 @@ class ChromeDino:
         )
         if self.speed_cap:
             self._page.evaluate(CAP_SPEED_JS, self.speed_cap)
-        self._page.evaluate(PREP_PAGE_JS)
-        self._enter_fullscreen()
         self._page.evaluate(ARCADE_JS)
+        self._page.evaluate(RESUME_JS)
 
     def close(self) -> None:
         self._set_duck(False)
@@ -403,6 +458,7 @@ class ChromeDino:
         self._playwright.stop()
 
     def observe(self) -> dict[str, Any]:
+        self._page.evaluate(RESUME_JS)
         raw = self._page.evaluate(SNAPSHOT_JS, self.speed_cap)
         if not raw or not raw.get("ok"):
             raise RuntimeError(raw.get("error") if raw else "dino snapshot failed")
