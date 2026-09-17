@@ -10,8 +10,8 @@ def test_internat_hud_scripts_paint_typesafe_replies():
     assert "_replySeq" in APPLY_JS
 
 
-def test_arcade_scales_logical_600_without_wiping_canvas_buffer():
-    assert "canvas.width =" not in ARCADE_JS
-    assert 'style.width = logicalW + "px"' in ARCADE_JS
+def test_arcade_scales_logical_600_and_rescales_hidpi():
+    assert "inst.canvas.width = logicalW" in ARCADE_JS
+    assert "updateCanvasScaling" in ARCADE_JS
     assert "setArcadeMode" in ARCADE_JS
     assert "window.innerHeight * 0.48" not in ARCADE_JS

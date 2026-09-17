@@ -157,16 +157,31 @@ PATCH_DT_JS = """() => {
     inst.adjustDimensions = function patchedAdjust() {
       const wasPlaying = this.playing && !this.crashed;
       innerAdjust();
+      const logicalW = 600;
+      const logicalH = (this.dimensions && this.dimensions.height) || 150;
+      const dpr = Math.floor(window.devicePixelRatio) || 1;
       if (this.dimensions) {
-        this.dimensions.width = 600;
-        if ("WIDTH" in this.dimensions) this.dimensions.WIDTH = 600;
+        this.dimensions.width = logicalW;
+        if ("WIDTH" in this.dimensions) this.dimensions.WIDTH = logicalW;
+      }
+      if (this.canvas) {
+        const bufW = this.canvas.width;
+        if (bufW !== logicalW && bufW !== logicalW * dpr) {
+          this.canvas.width = logicalW;
+          this.canvas.height = logicalH;
+          if (typeof this.updateCanvasScaling === "function") {
+            this.updateCanvasScaling(this.canvas);
+          }
+        }
+        this.canvas.style.width = logicalW + "px";
+        this.canvas.style.height = logicalH + "px";
       }
       if (this.containerEl) {
-        this.containerEl.style.width = "600px";
-        this.containerEl.style.height = ((this.dimensions && this.dimensions.height) || 150) + "px";
+        this.containerEl.style.width = logicalW + "px";
+        this.containerEl.style.height = logicalH + "px";
       }
       if (this.distanceMeter && typeof this.distanceMeter.calcXpos === "function") {
-        this.distanceMeter.calcXpos(600);
+        this.distanceMeter.calcXpos(logicalW);
       }
       if (typeof this.setArcadeMode === "function") this.setArcadeMode();
       if (wasPlaying && !this.crashed) {
@@ -245,9 +260,23 @@ ARCADE_JS = """() => {
     }
     const logicalW = 600;
     const logicalH = (inst.dimensions && (inst.dimensions.height || inst.dimensions.HEIGHT)) || 150;
+    const dpr = Math.floor(window.devicePixelRatio) || 1;
     if (inst.dimensions) {
       inst.dimensions.width = logicalW;
       if ("WIDTH" in inst.dimensions) inst.dimensions.WIDTH = logicalW;
+    }
+    if (inst.canvas) {
+      const bufW = inst.canvas.width;
+      const hidpi = bufW === logicalW * dpr;
+      if (bufW !== logicalW && !hidpi) {
+        inst.canvas.width = logicalW;
+        inst.canvas.height = logicalH;
+        if (typeof inst.updateCanvasScaling === "function") {
+          inst.updateCanvasScaling(inst.canvas);
+        }
+      }
+      inst.canvas.style.width = logicalW + "px";
+      inst.canvas.style.height = logicalH + "px";
     }
     const el = inst.containerEl;
     if (el) {
