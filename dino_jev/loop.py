@@ -75,6 +75,7 @@ class RunLoop:
         self.last_intent: Intent | None = None
         self.last_state: dict[str, Any] | None = None
         self.last_error: str | None = None
+        self.last_state = self.session.observe()
 
     def tick(self) -> dict[str, Any]:
         state = self.session.observe()

@@ -34,13 +34,15 @@ class DinoServer:
         self.session = self._new_session()
         self.loop = RunLoop(self.session, make_client(self.policy_name))
         self.running = False
-        self.worker: threading.Thread | None = None
         self.error: str | None = None
         self.runs = 0
         self.best_score = 0
         self.last_score = 0
         self._frame_png: bytes | None = None
         self._frame_at = 0.0
+        self._pending: tuple[str, str | None] | None = None
+        self._public: dict[str, Any] = {}
+        self._publish(self.loop.snapshot())
 
     def _new_session(self):
         if self.backend == "fake":
@@ -49,7 +51,29 @@ class DinoServer:
 
     def snapshot(self) -> dict[str, Any]:
         with self.lock:
-            data = self.loop.snapshot()
+            return dict(self._public)
+
+    def enqueue(self, action: str, policy: str | None = None) -> None:
+        with self.lock:
+            self._pending = (action, policy)
+
+    def start(self) -> None:
+        self.enqueue("start")
+
+    def stop(self) -> None:
+        self.enqueue("stop")
+
+    def reset(self, policy: str | None = None) -> None:
+        self.enqueue("reset", policy)
+
+    def step_once(self) -> dict[str, Any]:
+        self.enqueue("step")
+        self.pump()
+        return self.snapshot()
+
+    def _publish(self, frame: dict[str, Any] | None = None) -> None:
+        data = dict(frame or {})
+        with self.lock:
             data["running"] = self.running
             data["policy"] = self.policy_name
             data["backend"] = self.backend
@@ -58,50 +82,45 @@ class DinoServer:
             data["runs"] = self.runs
             data["best_score"] = self.best_score
             data["last_score"] = self.last_score
-            return data
+            self._public = data
 
-    def start(self) -> None:
-        with self.lock:
-            if self.running:
-                return
+    def _handle(self, action: str, policy: str | None) -> None:
+        if action == "start":
+            if policy:
+                self._reset(policy)
             self.running = True
             self.error = None
-            try:
-                self.session.start_run()
-            except Exception as exc:  # noqa: BLE001
-                self.running = False
-                self.error = str(exc)
-                raise
-        self.worker = threading.Thread(target=self._run, daemon=True)
-        self.worker.start()
-
-    def stop(self) -> None:
-        with self.lock:
+            self.session.start_run()
+            self._publish(self.loop.snapshot())
+            return
+        if action == "stop":
             self.running = False
-
-    def reset(self, policy: str | None = None) -> None:
-        with self.lock:
-            self.running = False
-            if policy is not None:
-                self.policy_name = policy
-            try:
-                self.session.restart()
-            except Exception:
-                self.session.close()
-                self.session = self._new_session()
-            self.loop = RunLoop(self.session, make_client(self.policy_name))
+            self._publish(self.loop.snapshot())
+            return
+        if action == "reset":
+            self._reset(policy)
+            self._publish(self.loop.snapshot())
+            return
+        if action == "step":
+            frame = self.loop.tick()
             self.error = None
+            self._note_crash(frame)
+            self._maybe_frame()
+            self._publish(frame)
+            return
+        raise ValueError(f"unknown action {action}")
 
-    def step_once(self) -> dict[str, Any]:
-        with self.lock:
-            try:
-                frame = self.loop.tick()
-                self.error = None
-                self._note_crash(frame)
-                return frame
-            except Exception as exc:  # noqa: BLE001
-                self.error = str(exc)
-                raise
+    def _reset(self, policy: str | None) -> None:
+        self.running = False
+        if policy is not None:
+            self.policy_name = policy
+        try:
+            self.session.restart()
+        except Exception:
+            self.session.close()
+            self.session = self._new_session()
+        self.loop = RunLoop(self.session, make_client(self.policy_name))
+        self.error = None
 
     def _note_crash(self, frame: dict[str, Any]) -> None:
         run = frame.get("run") or {}
@@ -114,35 +133,47 @@ class DinoServer:
                 self.session.restart()
                 self.session.start_run()
 
-    def _run(self) -> None:
-        while True:
-            with self.lock:
-                if not self.running:
-                    return
-                dt = self.loop.dt
-            started = time.perf_counter()
-            try:
-                self.step_once()
-            except Exception:
-                with self.lock:
-                    self.running = False
-                return
-            leftover = dt - (time.perf_counter() - started)
-            if leftover > 0:
-                time.sleep(leftover)
-
-    def frame_png(self) -> bytes | None:
+    def _maybe_frame(self) -> None:
         now = time.monotonic()
         if now - self._frame_at < 0.45 and self._frame_png:
-            return self._frame_png
-        with self.lock:
-            png = self.session.screenshot_png()
-        self._frame_png = png
+            return
+        self._frame_png = self.session.screenshot_png()
         self._frame_at = now
-        return png
+
+    def pump(self) -> None:
+        """Advance queued commands and the run loop on the Playwright thread."""
+        with self.lock:
+            pending = self._pending
+            self._pending = None
+        if pending is not None:
+            action, policy = pending
+            try:
+                self._handle(action, policy)
+            except Exception as exc:  # noqa: BLE001
+                self.running = False
+                self.error = str(exc)
+                self._publish(self.loop.snapshot())
+                return
+        if not self.running:
+            time.sleep(0.04)
+            return
+        try:
+            frame = self.loop.tick_paced()
+            self.error = None
+            self._note_crash(frame)
+            self._maybe_frame()
+            self._publish(frame)
+        except Exception as exc:  # noqa: BLE001
+            self.running = False
+            self.error = str(exc)
+            self._publish(self.loop.snapshot())
+
+    def frame_png(self) -> bytes | None:
+        with self.lock:
+            return self._frame_png
 
     def close(self) -> None:
-        self.stop()
+        self.running = False
         self.session.close()
 
 
@@ -202,19 +233,10 @@ def make_handler(arena: DinoServer) -> type[BaseHTTPRequestHandler]:
             policy = payload.get("policy")
             try:
                 if path == "/api/control":
-                    if action == "start":
-                        if policy:
-                            arena.reset(policy)
-                        arena.start()
-                    elif action == "stop":
-                        arena.stop()
-                    elif action == "reset":
-                        arena.reset(policy)
-                    elif action == "step":
-                        arena.step_once()
-                    else:
+                    if action not in {"start", "stop", "reset", "step"}:
                         self._json({"error": f"unknown action {action}"}, 400)
                         return
+                    arena.enqueue(str(action), policy)
                     self._json(arena.snapshot())
                     return
             except Exception as exc:  # noqa: BLE001
@@ -243,11 +265,16 @@ def serve(
         speed_cap=speed_cap,
     )
     server = ThreadingHTTPServer((host, port), make_handler(arena))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
     print(
         f"Dino-Jev inspector on http://{host}:{port}  "
         f"policy={arena.policy_name} backend={backend}"
     )
     try:
-        server.serve_forever()
+        while True:
+            arena.pump()
+    except KeyboardInterrupt:
+        pass
     finally:
         arena.close()
+        server.shutdown()
