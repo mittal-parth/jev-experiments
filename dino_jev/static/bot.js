@@ -123,10 +123,6 @@
     return false;
   }
 
-  function midBirdBlocking(nearest, dinoX, dinoW) {
-    return nearest && nearest.x + nearest.w >= dinoX + dinoW - 4;
-  }
-
   function duckClearsMid(obstacles, speed, dinoX, groundY) {
     const duckY = groundY + (DINO_H - DINO_DUCK_H);
     return firstHit(obstacles, speed, dinoX, duckY, DINO_DUCK_W, DINO_DUCK_H, 24) === null;
@@ -152,10 +148,9 @@
     const speed = inst.currentSpeed;
     const dinoX = trex.xPos;
     const groundY = trex.groundYPos;
-    const width = trex.ducking ? trex.config.widthDuck : trex.config.width;
     if (trex.ducking) {
       const nearest = obstacles[0];
-      if (nearest && clearance(nearest) === "mid" && midBirdBlocking(nearest, dinoX, width)) {
+      if (nearest && clearance(nearest) === "mid" && nearest.x + nearest.w > dinoX + 8) {
         return "duck";
       }
       return "run";
@@ -165,9 +160,10 @@
     if (how === "high" || how === "clear") return "run";
     if (how === "mid") {
       const lead = adaptiveLead((jev.config && jev.config.leadFrames) || LEAD_FRAMES, speed);
-      const horizon = Math.max(22, Math.round(lead + speed * 0.35));
+      const duckLead = Math.max(lead, 18);
+      const horizon = Math.max(28, Math.round(duckLead + speed * 0.5));
       const stand = firstHit(obstacles, speed, dinoX, groundY, DINO_W, DINO_H, horizon);
-      const closeEnough = stand !== null && stand <= lead;
+      const closeEnough = stand !== null && stand <= duckLead;
       if (
         closeEnough &&
         !duckBoxHitsNow(obstacles, dinoX, groundY) &&
@@ -319,6 +315,85 @@
     }
   }
 
+  function jevWants(kind) {
+    const reply = jev.reply || {};
+    if (kind === "jump") {
+      return (
+        reply.action === "jump" ||
+        reply.asked === "jump" ||
+        reply.jump === true ||
+        Number(reply.jump_now) >= 0.55
+      );
+    }
+    if (kind === "duck") {
+      return (
+        reply.action === "duck" ||
+        reply.asked === "duck" ||
+        reply.duck === true ||
+        Number(reply.duck_now) >= 0.55
+      );
+    }
+    return false;
+  }
+
+  function holdDuck(inst) {
+    const trex = inst && inst.tRex;
+    if (!trex || !trex.ducking) return false;
+    const obstacles = packObstacles(inst);
+    const nearest = obstacles[0];
+    if (nearest && clearance(nearest) === "mid" && nearest.x + nearest.w > trex.xPos + 8) {
+      jev.action = "duck";
+      return true;
+    }
+    return false;
+  }
+
+  function mountCallout() {
+    let el = jev._callout || document.getElementById("dino-jev-callout");
+    if (el) {
+      jev._callout = el;
+      return el;
+    }
+    if (!document.getElementById("dino-jev-callout-style")) {
+      const style = document.createElement("style");
+      style.id = "dino-jev-callout-style";
+      style.textContent =
+        "@keyframes dinoJevPop { 0% { transform: scale(0.72); opacity: 0.35; } 18% { transform: scale(1.12); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }";
+      document.documentElement.appendChild(style);
+    }
+    el = document.createElement("div");
+    el.id = "dino-jev-callout";
+    el.style.cssText = [
+      "position:fixed",
+      "bottom:28px",
+      "left:400px",
+      "z-index:100000",
+      "pointer-events:none",
+      "font:900 84px/0.9 ui-sans-serif, system-ui, sans-serif",
+      "letter-spacing:0.04em",
+      "text-transform:uppercase",
+      "text-shadow:0 8px 28px rgba(0,0,0,0.55)",
+      "color:#e8edf5",
+    ].join(";");
+    document.documentElement.appendChild(el);
+    jev._callout = el;
+    return el;
+  }
+
+  function paintCallout(exec) {
+    const el = mountCallout();
+    const colors = { run: "#8b97ab", jump: "#ffb020", duck: "#3ee0c5" };
+    const color = colors[exec] || "#e8edf5";
+    if (jev._calloutAction !== exec) {
+      jev._calloutAction = exec;
+      el.style.animation = "none";
+      void el.offsetWidth;
+      el.style.animation = "dinoJevPop 420ms ease-out";
+    }
+    el.style.color = color;
+    el.textContent = exec || "run";
+  }
+
   function bar(label, value, win, color) {
     const p = Math.max(0, Math.min(100, Math.round((Number(value) || 0) * 100)));
     return (
@@ -395,10 +470,18 @@
     const now = performance.now();
     const seq = jev._replySeq || 0;
     const prevSeq = jev._paintedReply || 0;
-    if (now - jev._hudAt < 50 && jev._el && prevSeq === seq) return;
-    if (prevSeq !== seq) jev._flashUntil = now + 240;
+    const reply = jev.reply;
+    const asked = reply && reply.asked ? reply.asked : jev.action || "run";
+    const exec = jev.action || (reply && reply.action) || "run";
+    paintCallout(exec);
+    if (now - jev._hudAt < 40 && jev._el && prevSeq === seq && jev._hudExec === exec && jev._hudAsked === asked) {
+      return;
+    }
+    if (prevSeq !== seq || jev._hudExec !== exec) jev._flashUntil = now + 380;
     jev._hudAt = now;
     jev._paintedReply = seq;
+    jev._hudExec = exec;
+    jev._hudAsked = asked;
     let el = jev._el || document.getElementById("dino-jev-hud");
     if (!el) {
       el = document.createElement("div");
@@ -443,12 +526,16 @@
     jev.speed = inst ? inst.currentSpeed : 0;
     jev.gap = gap;
     const gapText = nearest ? gap + "px " + nearest.kind + "/" + clearance(nearest) : "clear";
-    const reply = jev.reply;
-    const asked = reply && reply.asked ? reply.asked : jev.action || "run";
-    const exec = jev.action || (reply && reply.action) || "run";
     const armed = jev.armed || (reply && reply.armed) || null;
     const gated = !!(reply && reply.gated);
-    const latency = reply && reply.latency_ms != null ? Math.round(reply.latency_ms) + "ms" : "—";
+    const fallback = !!(reply && reply.fallback);
+    const latencyMs = reply && reply.latency_ms != null ? Number(reply.latency_ms) : null;
+    const lats = jev._latencies || [];
+    const avgMs = lats.length
+      ? Math.round(lats.reduce((sum, n) => sum + n, 0) / lats.length)
+      : null;
+    const hz = avgMs ? (1000 / Math.max(avgMs, 1)).toFixed(1) : "—";
+    const latency = latencyMs != null ? Math.round(latencyMs) + "ms" : "—";
     const armGap =
       reply && reply.arm_gap != null
         ? Math.round(reply.arm_gap)
@@ -464,7 +551,9 @@
         color +
         '">' +
         provider +
-        "</span> ask <b>" +
+        "</span>" +
+        (fallback ? ' <span style="color:#ff6a00">fallback</span>' : "") +
+        " ask <b>" +
         asked +
         "</b> · arm <b>" +
         (armed || "—") +
@@ -472,9 +561,14 @@
         exec +
         "</b>" +
         (gated ? ' <span style="color:#ff6a00">gated</span>' : "") +
-        "  " +
+        "</div>",
+      "<div>last " +
         latency +
-        "  #" +
+        "  avg " +
+        (avgMs != null ? avgMs + "ms" : "—") +
+        "  ~" +
+        hz +
+        " Hz  #" +
         seq +
         "</div>",
       "<div>score <b>" +
@@ -491,11 +585,11 @@
     }
     if (reply && (reply.run_p != null || reply.jump_p != null || reply.duck_p != null)) {
       lines.push(
-        bar("run", reply.run_p, asked === "run", color),
-        bar("jump", reply.jump_p, asked === "jump", color),
-        bar("duck", reply.duck_p, asked === "duck", color),
-        bar("jump_now", reply.jump_now, exec === "jump", color),
-        bar("duck_now", reply.duck_now, exec === "duck", color),
+        bar("jev run", reply.run_p, asked === "run", color),
+        bar("jev jump", reply.jump_p, asked === "jump", "#ffb020"),
+        bar("jev duck", reply.duck_p, asked === "duck", "#3ee0c5"),
+        bar("jump_now", reply.jump_now, exec === "jump", "#ffb020"),
+        bar("duck_now", reply.duck_now, exec === "duck", "#3ee0c5"),
         "<div style='font-size:12px;color:#c5d0e0'>urgency " +
           (reply.urgency ?? "—") +
           "  conf " +
@@ -519,7 +613,28 @@
       jev.action = "jump";
       return;
     }
-    act(inst, decide(inst));
+    if (holdDuck(inst)) return;
+    if (jev.provider === "heuristic") {
+      act(inst, decide(inst));
+      return;
+    }
+    if (jev.provider === "jev") {
+      timeArmed(inst);
+      if (jevWants("duck")) {
+        applyJevIntent(inst, "duck");
+        return;
+      }
+      if (jevWants("jump")) {
+        applyJevIntent(inst, "jump");
+        return;
+      }
+      const geo = decide(inst);
+      if (geo === "jump" || geo === "duck") {
+        act(inst, geo);
+        return;
+      }
+      applyJevIntent(inst, "run");
+    }
   };
 
   jev.paintHud = paintHud;

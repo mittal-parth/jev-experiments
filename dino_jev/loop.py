@@ -125,6 +125,8 @@ class RunLoop:
                 latency_ms=latency_ms,
                 previous=self.last_intent,
             )
+            if usage and usage.get("fallback"):
+                intent.fallback = True
             self.session.apply(intent)
             self.last_intent = intent
             self.last_state = getattr(self.session, "_last_state", None) or state

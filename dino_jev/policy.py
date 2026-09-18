@@ -34,6 +34,7 @@ class Intent:
     provider: str
     armed_id: str | None = None
     arm_gap: float | None = None
+    fallback: bool = False
     raw: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
@@ -50,6 +51,7 @@ class Intent:
             "nouls": self.nouls,
             "latency_ms": self.latency_ms,
             "provider": self.provider,
+            "fallback": self.fallback,
         }
 
     def hud_payload(self) -> dict[str, Any]:
@@ -75,6 +77,7 @@ class Intent:
             "duck_now": round(float(self.nouls.get("duck_now") or 0.0), 3),
             "urgency": round(float(self.urgency or 0.0), 3),
             "latency_ms": self.latency_ms,
+            "fallback": self.fallback,
         }
 
 

@@ -103,10 +103,16 @@ HUD_JS = """(payload) => {
   }
   jev.reply = payload;
   jev._replySeq = (jev._replySeq || 0) + 1;
-  if (typeof jev.paintHud === "function") {
-    const inst = typeof Runner !== "undefined" && Runner.getInstance && Runner.getInstance();
-    jev.paintHud(inst);
+  if (payload && payload.latency_ms != null) {
+    jev._latencies = jev._latencies || [];
+    jev._latencies.push(Number(payload.latency_ms));
+    if (jev._latencies.length > 40) jev._latencies.shift();
   }
+  const inst = typeof Runner !== "undefined" && Runner.getInstance && Runner.getInstance();
+  if (jev.provider === "jev" && inst && typeof jev.applyJevIntent === "function" && payload) {
+    jev.applyJevIntent(inst, payload.action || payload.asked || "run");
+  }
+  if (typeof jev.paintHud === "function") jev.paintHud(inst);
   return true;
 }"""
 
@@ -237,7 +243,6 @@ APPLY_JS = """(payload) => {
     return { ok: true, skipped: true, crashed: !!inst.crashed };
   }
   if (provider === "jev") {
-    if (action === "run" && t.ducking) t.setDuck(false);
     return {
       ok: true,
       armed: jev && jev.armed,
@@ -665,6 +670,9 @@ class ChromeDino:
         in_page = self.in_page_control
         payload["set_action"] = False if in_page else True
         if in_page:
+            payload["duck"] = intent.duck
+            payload["jump"] = intent.jump
+            payload["fallback"] = bool(intent.fallback)
             self._page.evaluate(HUD_JS, payload)
             return
         self._page.evaluate(APPLY_JS, payload)

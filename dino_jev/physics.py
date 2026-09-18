@@ -213,7 +213,8 @@ def decide_action(state: dict[str, Any], *, lead_frames: int = LEAD_FRAMES) -> s
         return "run"
     if clearance == "mid":
         lead = adaptive_lead(lead_frames, speed)
-        horizon = max(22, int(round(lead + speed * 0.35)))
+        duck_lead = max(lead, 18)
+        horizon = max(28, int(round(duck_lead + speed * 0.5)))
         stand = first_hit_frame(
             obstacles,
             speed=speed,
@@ -223,7 +224,7 @@ def decide_action(state: dict[str, Any], *, lead_frames: int = LEAD_FRAMES) -> s
             dino_h=DINO_H,
             max_frames=horizon,
         )
-        close_enough = stand is not None and stand <= lead
+        close_enough = stand is not None and stand <= duck_lead
         if (
             close_enough
             and not _duck_box_hits_now(obstacles, dino_x=dino_x, ground_y=ground_y)

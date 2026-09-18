@@ -33,6 +33,8 @@ def test_jev_apply_delegates_to_apply_jev_intent():
 
 def test_bot_runs_decide_on_runner_frames():
     assert "act(inst, decide(inst))" in BOT_JS
+    assert "applyJevIntent" in BOT_JS
+    assert "dino-jev-callout" in BOT_JS
     assert "adaptiveLead" in BOT_JS
     assert "duckClearsMid" in BOT_JS
     assert "const out = prev()" in BOT_JS
