@@ -103,11 +103,6 @@ HUD_JS = """(payload) => {
   }
   jev.reply = payload;
   jev._replySeq = (jev._replySeq || 0) + 1;
-  if (payload && payload.latency_ms != null) {
-    jev._latencies = jev._latencies || [];
-    jev._latencies.push(Number(payload.latency_ms));
-    if (jev._latencies.length > 40) jev._latencies.shift();
-  }
   const inst = typeof Runner !== "undefined" && Runner.getInstance && Runner.getInstance();
   if (jev.provider === "jev" && inst && typeof jev.applyJevIntent === "function" && payload) {
     jev.applyJevIntent(inst, payload.action || payload.asked || "run");

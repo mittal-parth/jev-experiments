@@ -22,6 +22,14 @@
   jev._hudAt = 0;
   jev.config = { leadFrames: LEAD_FRAMES, lastChanceFrames: 2, jevLeadBoost: 14 };
 
+  function recordReplyLatency(ms) {
+    const n = Number(ms);
+    if (!Number.isFinite(n)) return;
+    jev._latencies = jev._latencies || [];
+    jev._latencies.push(n);
+    if (jev._latencies.length > 40) jev._latencies.shift();
+  }
+
   function hit(dx, dy, dw, dh, ox, oy, ow, oh) {
     return (
       dx + 1 < ox + ow - 1 &&
@@ -372,8 +380,8 @@
       "font:900 84px/0.9 ui-sans-serif, system-ui, sans-serif",
       "letter-spacing:0.04em",
       "text-transform:uppercase",
-      "text-shadow:0 8px 28px rgba(0,0,0,0.55)",
-      "color:#e8edf5",
+      "-webkit-text-stroke:3px #140800",
+      "paint-order:stroke fill",
     ].join(";");
     document.documentElement.appendChild(el);
     jev._callout = el;
@@ -382,15 +390,14 @@
 
   function paintCallout(exec) {
     const el = mountCallout();
-    const colors = { run: "#8b97ab", jump: "#ffb020", duck: "#3ee0c5" };
-    const color = colors[exec] || "#e8edf5";
     if (jev._calloutAction !== exec) {
       jev._calloutAction = exec;
       el.style.animation = "none";
       void el.offsetWidth;
       el.style.animation = "dinoJevPop 420ms ease-out";
     }
-    el.style.color = color;
+    const colors = { run: "#c8d0dc", jump: "#ffb020", duck: "#3ee0c5" };
+    el.style.color = colors[exec] || "#ffb020";
     el.textContent = exec || "run";
   }
 
@@ -473,15 +480,21 @@
     const reply = jev.reply;
     const asked = reply && reply.asked ? reply.asked : jev.action || "run";
     const exec = jev.action || (reply && reply.action) || "run";
+    const latencyMs = reply && reply.latency_ms != null ? Number(reply.latency_ms) : null;
+    if (seq !== jev._latencyRecordedSeq && latencyMs != null) {
+      jev._latencyRecordedSeq = seq;
+      recordReplyLatency(latencyMs);
+    }
     paintCallout(exec);
-    if (now - jev._hudAt < 40 && jev._el && prevSeq === seq && jev._hudExec === exec && jev._hudAsked === asked) {
+    const execColors = { run: "#8b97ab", jump: "#ffb020", duck: "#3ee0c5" };
+    const flashColor = execColors[exec] || "#e8edf5";
+    if (now - jev._hudAt < 40 && jev._el && prevSeq === seq && jev._hudExec === exec) {
       return;
     }
     if (prevSeq !== seq || jev._hudExec !== exec) jev._flashUntil = now + 380;
     jev._hudAt = now;
     jev._paintedReply = seq;
     jev._hudExec = exec;
-    jev._hudAsked = asked;
     let el = jev._el || document.getElementById("dino-jev-hud");
     if (!el) {
       el = document.createElement("div");
@@ -511,7 +524,7 @@
     el.style.left = "16px";
     const provider = jev.provider || "heuristic";
     const color = provider === "jev" ? "#3ee0c5" : "#ff6a00";
-    el.style.borderColor = jev._flashUntil && now < jev._flashUntil ? color : "#243044";
+    el.style.borderColor = jev._flashUntil && now < jev._flashUntil ? flashColor : "#243044";
     const trex = inst && inst.tRex;
     const nearest = inst ? packObstacles(inst)[0] : null;
     const width = trex ? (trex.ducking ? trex.config.widthDuck : trex.config.width) : DINO_W;
@@ -526,42 +539,15 @@
     jev.speed = inst ? inst.currentSpeed : 0;
     jev.gap = gap;
     const gapText = nearest ? gap + "px " + nearest.kind + "/" + clearance(nearest) : "clear";
-    const armed = jev.armed || (reply && reply.armed) || null;
-    const gated = !!(reply && reply.gated);
-    const fallback = !!(reply && reply.fallback);
-    const latencyMs = reply && reply.latency_ms != null ? Number(reply.latency_ms) : null;
     const lats = jev._latencies || [];
     const avgMs = lats.length
       ? Math.round(lats.reduce((sum, n) => sum + n, 0) / lats.length)
       : null;
     const hz = avgMs ? (1000 / Math.max(avgMs, 1)).toFixed(1) : "—";
     const latency = latencyMs != null ? Math.round(latencyMs) + "ms" : "—";
-    const armGap =
-      reply && reply.arm_gap != null
-        ? Math.round(reply.arm_gap)
-        : jev.armGap != null
-          ? Math.round(jev.armGap)
-          : null;
     const conf = reply && reply.confidence != null ? Math.round(reply.confidence * 100) + "%" : "—";
     const lines = [
-      '<div style="letter-spacing:0.12em;text-transform:uppercase;font-size:10px;color:#8b97ab">Dino-Jev · live TypeSafe · no pixels</div>',
-      '<div><span style="display:inline-block;padding:1px 8px;border-radius:999px;background:' +
-        color +
-        "22;color:" +
-        color +
-        '">' +
-        provider +
-        "</span>" +
-        (fallback ? ' <span style="color:#ff6a00">fallback</span>' : "") +
-        " ask <b>" +
-        asked +
-        "</b> · arm <b>" +
-        (armed || "—") +
-        "</b> · do <b>" +
-        exec +
-        "</b>" +
-        (gated ? ' <span style="color:#ff6a00">gated</span>' : "") +
-        "</div>",
+      '<div style="font-size:13px;color:#e8edf5">Jev playing chrome dino!</div>',
       "<div>last " +
         latency +
         "  avg " +
@@ -577,7 +563,6 @@
         (inst ? inst.currentSpeed.toFixed(2) : "0") +
         "  gap " +
         gapText +
-        (armGap != null ? "  arm@" + armGap + "px" : "") +
         "</div>",
     ];
     if (reply && reply.note) {
@@ -596,8 +581,8 @@
           conf +
           "</div>"
       );
-    } else if (!reply || reply.note) {
-      lines.push("<div style='color:#8b97ab'>waiting for " + provider + "…</div>");
+    } else if (provider === "jev" && (!reply || reply.note)) {
+      lines.push("<div style='color:#8b97ab'>waiting for TypeSafe…</div>");
     }
     el.innerHTML = lines.join("");
   }
